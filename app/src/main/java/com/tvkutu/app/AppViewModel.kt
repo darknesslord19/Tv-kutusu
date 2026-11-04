@@ -1,6 +1,9 @@
 package com.tvkutu.app
 
 import android.app.Application
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -48,6 +51,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     var updateHours by mutableStateOf(repo.updateHours)
+        private set
+    var playerMode by mutableStateOf(repo.playerMode)
+        private set
+    var streamFormat by mutableStateOf(repo.streamFormat)
         private set
 
     var selectedGroup by mutableStateOf(ALL)
@@ -192,7 +199,44 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun play(channel: Channel) {
         currentChannel = channel
         repo.lastChannelKey = channel.key
-        screen = Screen.Player
+        if (playerMode == PLAYER_EXTERNAL) {
+            openExternal(channel)
+        } else {
+            screen = Screen.Player
+        }
+    }
+
+    /** Kanalı cihazdaki başka bir oynatıcıda (VLC, MX Player…) açar. */
+    fun openExternal(channel: Channel) {
+        val app = getApplication<Application>()
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse(channel.url), "video/*")
+            putExtra("title", channel.name)
+            channel.userAgent?.let { ua ->
+                putExtra("headers", arrayOf("User-Agent", ua)) // MX Player
+                putExtra("http-user-agent", ua)                // VLC
+            }
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        if (intent.resolveActivity(app.packageManager) == null) {
+            message = "Harici oynatıcı bulunamadı. VLC veya MX Player kur ya da Ayarlar'dan dahili oynatıcıyı seç."
+            return
+        }
+        try {
+            app.startActivity(Intent.createChooser(intent, channel.name).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: ActivityNotFoundException) {
+            message = "Harici oynatıcı bulunamadı. VLC veya MX Player kur ya da Ayarlar'dan dahili oynatıcıyı seç."
+        }
+    }
+
+    fun setPlayer(mode: String) {
+        repo.playerMode = mode
+        playerMode = mode
+    }
+
+    fun setFormat(format: String) {
+        repo.streamFormat = format
+        streamFormat = format
     }
 
     fun switchTo(channel: Channel) {
@@ -216,5 +260,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     companion object {
         const val ALL = "Tüm kanallar"
         const val FAVORITES = "★ Favoriler"
+        const val PLAYER_INTERNAL = "internal"
+        const val PLAYER_EXTERNAL = "external"
     }
 }

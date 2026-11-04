@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -45,6 +46,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -57,9 +59,12 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.hls.HlsManifest
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -91,11 +96,15 @@ fun PlayerScreen(vm: AppViewModel) {
     var retries by remember { mutableIntStateOf(0) }
     var forceHls by remember { mutableStateOf(false) }
     var hideJob by remember { mutableStateOf<Job?>(null) }
+    var isPlaying by remember { mutableStateOf(false) }
+    var sourceKind by remember { mutableStateOf("") }
+    var tech by remember { mutableStateOf("ExoPlayer") }
 
     val rootFocus = remember { FocusRequester() }
 
     val player = remember {
-        ExoPlayer.Builder(context).build().apply { playWhenReady = true }
+        val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
+        ExoPlayer.Builder(context, renderers).build().apply { playWhenReady = true }
     }
 
     fun prepare(ch: Channel, hls: Boolean) {
@@ -106,8 +115,20 @@ fun PlayerScreen(vm: AppViewModel) {
             .setReadTimeoutMs(20_000)
         ch.referrer?.let { http.setDefaultRequestProperties(mapOf("Referer" to it)) }
 
+        val format = vm.streamFormat
+        val mime = when {
+            format == "hls" || hls -> MimeTypes.APPLICATION_M3U8
+            format == "ts" -> MimeTypes.VIDEO_MP2T
+            ch.url.contains(".m3u8", ignoreCase = true) -> MimeTypes.APPLICATION_M3U8
+            else -> null
+        }
+        sourceKind = when (mime) {
+            MimeTypes.APPLICATION_M3U8 -> "HLS"
+            MimeTypes.VIDEO_MP2T -> "MPEG-TS"
+            else -> ""
+        }
         val item = MediaItem.Builder().setUri(ch.url).apply {
-            if (hls || ch.url.contains(".m3u8", ignoreCase = true)) setMimeType(MimeTypes.APPLICATION_M3U8)
+            if (mime != null) setMimeType(mime)
         }.build()
 
         val source = DefaultMediaSourceFactory(http).createMediaSource(item)
@@ -149,7 +170,16 @@ fun PlayerScreen(vm: AppViewModel) {
                 if (state == Player.STATE_READY) {
                     status = null
                     retries = 0
+                    tech = describe(player, sourceKind)
                 }
+            }
+
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
+
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                tech = describe(player, sourceKind)
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -160,7 +190,7 @@ fun PlayerScreen(vm: AppViewModel) {
                         player.prepare()
                     }
                     // Uzantısız linkler bazen HLS çıkar: bir kez HLS olarak dene.
-                    !forceHls && (error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
+                    !forceHls && vm.streamFormat == "auto" && (error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
                         error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED) -> {
                         forceHls = true
                         prepare(ch, hls = true)
@@ -221,6 +251,12 @@ fun PlayerScreen(vm: AppViewModel) {
                 }
             }
             .focusable()
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = {
+                    hideJob?.cancel()
+                    overlay = if (overlay == Overlay.None || overlay == Overlay.Banner) Overlay.Info else Overlay.None
+                })
+            }
     ) {
         AndroidView(
             factory = { ctx ->
@@ -250,9 +286,12 @@ fun PlayerScreen(vm: AppViewModel) {
         }
 
         when (overlay) {
-            Overlay.Banner -> InfoPanel(vm, channel, interactive = false, onAction = {}, modifier = Modifier.align(Alignment.BottomCenter))
-            Overlay.Info -> InfoPanel(vm, channel, interactive = true, modifier = Modifier.align(Alignment.BottomCenter)) { action ->
+            Overlay.Banner -> InfoPanel(vm, channel, tech, isPlaying, interactive = false, onAction = {}, modifier = Modifier.align(Alignment.BottomCenter))
+            Overlay.Info -> InfoPanel(vm, channel, tech, isPlaying, interactive = true, modifier = Modifier.align(Alignment.BottomCenter)) { action ->
                 when (action) {
+                    "prev" -> switchBy(-1)
+                    "next" -> switchBy(+1)
+                    "close" -> overlay = Overlay.None
                     "fav" -> vm.toggleFavorite(channel)
                     "channels" -> overlay = Overlay.Channels
                     "guide" -> overlay = Overlay.Guide
@@ -274,6 +313,8 @@ fun PlayerScreen(vm: AppViewModel) {
 private fun InfoPanel(
     vm: AppViewModel,
     channel: Channel,
+    tech: String,
+    isPlaying: Boolean,
     interactive: Boolean,
     modifier: Modifier,
     onAction: (String) -> Unit,
@@ -305,7 +346,8 @@ private fun InfoPanel(
                         Text("  ★", color = Palette.Fav, fontSize = 22.sp)
                     }
                 }
-                Text(channel.group, color = Palette.TextDim, fontSize = 14.sp)
+                Text("${channel.group}  ·  $tech", color = Palette.TextDim, fontSize = 14.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Text(formatTime(now), color = Palette.Text, fontSize = 22.sp)
         }
@@ -341,9 +383,12 @@ private fun InfoPanel(
                     onClick = { onAction("fav") },
                     modifier = Modifier.focusRequester(firstButton),
                 )
-                TvButton("Duraklat / Oynat", onClick = { onAction("pause") })
-                TvButton("Kanallar", onClick = { onAction("channels") })
+                TvButton("◀ Önceki", onClick = { onAction("prev") })
+                TvButton(if (isPlaying) "⏸ Duraklat" else "▶ Oynat", onClick = { onAction("pause") })
+                TvButton("Sonraki ▶", onClick = { onAction("next") })
+                TvButton("☰ Kanallar", onClick = { onAction("channels") })
                 TvButton("Yayın akışı", onClick = { onAction("guide") })
+                TvButton("✕ Kapat", onClick = { onAction("close") })
             }
         }
     }
@@ -454,6 +499,25 @@ private fun GuidePanel(vm: AppViewModel, channel: Channel, modifier: Modifier) {
             }
         }
     }
+}
+
+@OptIn(UnstableApi::class)
+private fun describe(player: ExoPlayer, forcedKind: String): String {
+    val kind = when {
+        player.currentManifest is HlsManifest -> "HLS"
+        forcedKind.isNotEmpty() -> forcedKind
+        else -> "Akış"
+    }
+    val parts = mutableListOf("ExoPlayer", kind)
+    val f = player.videoFormat
+    if (f != null && f.width > 0 && f.height > 0) parts += "${f.width}×${f.height}"
+    when (f?.sampleMimeType) {
+        MimeTypes.VIDEO_H264 -> parts += "H.264"
+        MimeTypes.VIDEO_H265 -> parts += "H.265"
+        MimeTypes.VIDEO_MPEG2 -> parts += "MPEG-2"
+        MimeTypes.VIDEO_AV1 -> parts += "AV1"
+    }
+    return parts.joinToString(" · ")
 }
 
 private fun errorText(e: PlaybackException): String = when (e.errorCode) {

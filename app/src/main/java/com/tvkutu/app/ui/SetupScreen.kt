@@ -171,6 +171,44 @@ fun SetupScreen(vm: AppViewModel) {
                     if (vm.setupFromSettings) TvButton("Vazgeç", onClick = { vm.closeSettings() })
                 }
 
+                // ---- Oynatıcı ----
+                Section("Oynatıcı")
+                Text("Kanallar hangi oynatıcıda açılsın?", color = Palette.TextDim, fontSize = 15.sp)
+                Spacer(Modifier.height(14.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Chip("Dahili (ExoPlayer)", selected = vm.playerMode == AppViewModel.PLAYER_INTERNAL) {
+                        vm.setPlayer(AppViewModel.PLAYER_INTERNAL)
+                    }
+                    Chip("Harici uygulama (VLC, MX…)", selected = vm.playerMode == AppViewModel.PLAYER_EXTERNAL) {
+                        vm.setPlayer(AppViewModel.PLAYER_EXTERNAL)
+                    }
+                }
+                if (vm.playerMode == AppViewModel.PLAYER_INTERNAL) {
+                    Spacer(Modifier.height(18.dp))
+                    Text(
+                        "Yayın biçimi: çoğu liste için Otomatik doğrudur. Bir kanal açılmıyorsa HLS veya MPEG-TS'yi dene.",
+                        color = Palette.TextDim, fontSize = 15.sp,
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        listOf("auto" to "Otomatik", "hls" to "HLS (m3u8)", "ts" to "MPEG-TS").forEach { (f, label) ->
+                            Chip(label, selected = vm.streamFormat == f) { vm.setFormat(f) }
+                        }
+                    }
+                } else {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Kanala basınca cihazdaki oynatıcılardan birini seçmen istenir. Yayın akışı ve kanal değiştirme TvKutu içinde kalır.",
+                        color = Palette.TextDim, fontSize = 14.sp,
+                    )
+                }
+
                 // ---- Otomatik güncelleme ----
                 Section("Otomatik güncelleme")
                 Text("Liste ve yayın akışı, uygulama açıkken seçtiğin aralıkla yenilenir.",

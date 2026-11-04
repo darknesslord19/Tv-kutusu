@@ -10,13 +10,14 @@ Kumandayla kullanılan, sade ve hızlı bir IPTV oynatıcı. Kendi m3u/m3u8 list
 
 Her `main` dalına gönderilen değişiklikte GitHub Actions APK'yı otomatik derler ve yeni bir sürüm (Release) olarak yayınlar.
 
-## Özellikler (v0.2)
+## Özellikler (v0.3)
 
 - **Kumanda için tasarlandı:** her ekran ok tuşları, OK ve Geri ile çalışır.
 - **Kanal ızgarası:** logo, şu anki program ve ilerleme çubuğu; kategoriler listedeki sırayla.
 - **Favoriler:** oynatıcıda OK → "Favorilere ekle". Favoriler kategorisi en üstte görünür.
 - **Yayın akışı (EPG):** XMLTV (`xml`, `xml.gz`, `zip`) ya da listedeki `url-tvg` linki. Kanallar `tvg-id` veya isimle eşleştirilir.
-- **Kararlı oynatma:** Media3 ExoPlayer ile HLS ve MPEG-TS, kopmada otomatik yeniden bağlanma (5 deneme), anlaşılır hata mesajları.
+- **Oynatıcı:** dahili Media3 ExoPlayer (HLS ve MPEG-TS) ya da harici uygulama (VLC, MX Player…). Yayın biçimi Otomatik / HLS / MPEG-TS seçilebilir. Kopmada otomatik yeniden bağlanma (5 deneme), donanım çözücü sorununda yedek çözücü, anlaşılır hata mesajları.
+- **Dokunmatik kontroller:** telefonda videoya dokununca oynat/duraklat, önceki/sonraki, kanallar, yayın akışı ve favori butonları çıkar; panelde çözünürlük ve codec görünür.
 - **Kanal başına başlıklar:** `#EXTVLCOPT:http-user-agent`, `http-referrer` ve `url|User-Agent=…&Referer=…` biçimi.
 - **Telefondan kurulum (karekod):** TV ekranındaki karekodu telefonla okut, açılan sayfaya linkleri yapıştır, "Gönder"e dokun. Sayfa yalnızca ev ağında çalışır, tek kullanımlık kodla korunur ve gönderimden sonra kapanır.
 - **Otomatik güncelleme:** liste ve yayın akışı 6, 12 veya 24 saatte bir yenilenir (ya da kapalı).

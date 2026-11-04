@@ -45,6 +45,16 @@ class Repository(context: Context) {
         get() = prefs.getInt("update_hours", 12)
         set(v) = prefs.edit().putInt("update_hours", v).apply()
 
+    /** "internal" = ExoPlayer, "external" = cihazdaki başka oynatıcı (VLC, MX…). */
+    var playerMode: String
+        get() = prefs.getString("player_mode", "internal") ?: "internal"
+        set(v) = prefs.edit().putString("player_mode", v).apply()
+
+    /** "auto", "hls" veya "ts". */
+    var streamFormat: String
+        get() = prefs.getString("stream_format", "auto") ?: "auto"
+        set(v) = prefs.edit().putString("stream_format", v).apply()
+
     val hasPlaylist get() = playlistUrl.isNotBlank()
 
     // ---- Favoriler ----
