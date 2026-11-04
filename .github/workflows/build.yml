@@ -1,0 +1,52 @@
+name: APK derle
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Testler
+        run: gradle --no-daemon testDebugUnitTest
+
+      - name: APK derle
+        run: gradle --no-daemon assembleRelease
+
+      - name: APK'yı adlandır
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk dist/TvKutu.apk
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TvKutu-apk
+          path: dist/TvKutu.apk
+
+      - name: Sürüm yayınla
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.${{ github.run_number }}
+          name: TvKutu v0.1.${{ github.run_number }}
+          body: |
+            Otomatik derleme. `TvKutu.apk` dosyasını indirip Android TV kutusuna kur.
+            Commit: ${{ github.sha }}
+          files: dist/TvKutu.apk
+          make_latest: true

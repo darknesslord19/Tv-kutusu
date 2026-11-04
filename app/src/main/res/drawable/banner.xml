@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android TV ana ekran banner'ı (320x180) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path android:fillColor="#0E1116" android:pathData="M0,0h320v180h-320z" />
+    <path android:fillColor="#3DDC97"
+        android:pathData="M40,60h70a6,6 0,0 1,6 6v44a6,6 0,0 1,-6 6h-70a6,6 0,0 1,-6 -6v-44a6,6 0,0 1,6 -6z" />
+    <path android:fillColor="#0E1116" android:pathData="M42,66h66v42h-66z" />
+    <path android:fillColor="#3DDC97" android:pathData="M68,76l16,11l-16,11z" />
+    <!-- "TV" -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M140,70h36v10h-13v32h-10v-32h-13z" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M180,70h11l10,30l10,-30h11l-16,42h-10z" />
+    <!-- alt çizgi -->
+    <path android:fillColor="#3DDC97" android:pathData="M140,120h82v4h-82z" />
+</vector>
