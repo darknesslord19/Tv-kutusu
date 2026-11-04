@@ -7,6 +7,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -266,6 +269,7 @@ fun PlayerScreen(vm: AppViewModel) {
     }
 }
 
+@kotlin.OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun InfoPanel(
     vm: AppViewModel,
@@ -283,7 +287,7 @@ private fun InfoPanel(
     Column(
         modifier.fillMaxWidth()
             .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xEE000000))))
-            .padding(start = 48.dp, end = 48.dp, top = 48.dp, bottom = 32.dp)
+            .padding(start = 24.dp, end = 24.dp, top = 48.dp, bottom = 24.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (channel.logo != null) {
@@ -331,7 +335,7 @@ private fun InfoPanel(
         }
         if (interactive) {
             Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 TvButton(
                     if (channel.key in vm.favorites) "★ Favoriden çıkar" else "☆ Favorilere ekle",
                     onClick = { onAction("fav") },
@@ -362,7 +366,7 @@ private fun ChannelsPanel(
         runCatching { focus.requestFocus() }
     }
     Column(
-        modifier.width(380.dp).fillMaxHeight().background(Color(0xE6101318)).padding(top = 24.dp)
+        modifier.fillMaxWidth(0.9f).widthIn(max = 380.dp).fillMaxHeight().background(Color(0xE6101318)).padding(top = 24.dp)
     ) {
         Text(vm.selectedGroup, color = Palette.Accent, fontSize = 18.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(horizontal = 24.dp))
@@ -408,7 +412,7 @@ private fun GuidePanel(vm: AppViewModel, channel: Channel, modifier: Modifier) {
         runCatching { focus.requestFocus() }
     }
     Column(
-        modifier.width(460.dp).fillMaxHeight().background(Color(0xE6101318)).padding(top = 24.dp)
+        modifier.fillMaxWidth(0.9f).widthIn(max = 460.dp).fillMaxHeight().background(Color(0xE6101318)).padding(top = 24.dp)
     ) {
         Text("Yayın akışı · ${channel.name}", color = Palette.Accent, fontSize = 18.sp, fontWeight = FontWeight.Bold,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 24.dp))

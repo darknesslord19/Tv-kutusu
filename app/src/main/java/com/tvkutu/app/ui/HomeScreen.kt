@@ -3,6 +3,7 @@ package com.tvkutu.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -46,45 +48,81 @@ import kotlinx.coroutines.delay
 fun HomeScreen(vm: AppViewModel) {
     val playlist = vm.playlist
 
-    Column(Modifier.fillMaxSize().background(Palette.Bg)) {
-        // Üst çubuk
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("TvKutu", color = Palette.Accent, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(16.dp))
-            if (vm.epgLoading) {
-                Text("Yayın akışı yükleniyor…", color = Palette.TextDim, fontSize = 14.sp)
-            } else {
-                vm.message?.let { Text(it, color = Palette.TextDim, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+    BoxWithConstraints(Modifier.fillMaxSize().background(Palette.Bg)) {
+        val narrow = maxWidth < 600.dp
+        Column(Modifier.fillMaxSize()) {
+            // Üst çubuk
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = if (narrow) 16.dp else 32.dp, vertical = if (narrow) 12.dp else 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("TvKutu", color = Palette.Accent, fontSize = if (narrow) 22.sp else 26.sp, fontWeight = FontWeight.Bold)
+                if (!narrow) {
+                    Spacer(Modifier.width(16.dp))
+                    StatusText(vm, Modifier.weight(1f, fill = false))
+                }
+                Spacer(Modifier.weight(1f))
+                TvButton("Yenile", onClick = { vm.refresh() })
+                Spacer(Modifier.width(if (narrow) 8.dp else 12.dp))
+                TvButton("Ayarlar", onClick = { vm.openSettings() })
+                if (!narrow) {
+                    Spacer(Modifier.width(20.dp))
+                    Text(formatTime(vm.now), color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
-            Spacer(Modifier.weight(1f))
-            TvButton("Yenile", onClick = { vm.refresh() })
-            Spacer(Modifier.width(12.dp))
-            TvButton("Ayarlar", onClick = { vm.openSettings() })
-            Spacer(Modifier.width(20.dp))
-            Text(formatTime(vm.now), color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-        }
+            if (narrow) StatusText(vm, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp))
 
-        when {
-            playlist == null && vm.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = Palette.Accent)
-                    Spacer(Modifier.height(12.dp))
-                    Text("Liste yükleniyor…", color = Palette.TextDim)
+            when {
+                playlist == null && vm.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = Palette.Accent)
+                        Spacer(Modifier.height(12.dp))
+                        Text("Liste yükleniyor…", color = Palette.TextDim)
+                    }
+                }
+                playlist == null -> Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(vm.message ?: "Liste yok", color = Palette.TextDim)
+                        Spacer(Modifier.height(12.dp))
+                        TvButton("Ayarlar", onClick = { vm.openSettings() })
+                    }
+                }
+                narrow -> Column(Modifier.fillMaxSize()) {
+                    GroupChips(vm)
+                    ChannelGrid(vm, narrow = true, modifier = Modifier.weight(1f).fillMaxWidth())
+                }
+                else -> Row(Modifier.fillMaxSize()) {
+                    GroupList(vm, Modifier.width(240.dp).fillMaxHeight())
+                    ChannelGrid(vm, narrow = false, modifier = Modifier.weight(1f).fillMaxHeight())
                 }
             }
-            playlist == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(vm.message ?: "Liste yok", color = Palette.TextDim)
-                    Spacer(Modifier.height(12.dp))
-                    TvButton("Ayarlar", onClick = { vm.openSettings() })
-                }
-            }
-            else -> Row(Modifier.fillMaxSize()) {
-                GroupList(vm, Modifier.width(240.dp).fillMaxHeight())
-                ChannelGrid(vm, Modifier.weight(1f).fillMaxHeight())
+        }
+    }
+}
+
+@Composable
+private fun StatusText(vm: AppViewModel, modifier: Modifier) {
+    val text = if (vm.epgLoading) "Yayın akışı yükleniyor…" else vm.message
+    if (text != null) {
+        Text(text, color = Palette.TextDim, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = modifier)
+    }
+}
+
+/** Dar ekranda (telefon dikey) kategoriler yatay kaydırılan çipler olarak. */
+@Composable
+private fun GroupChips(vm: AppViewModel) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(vm.groups, key = { it }) { g ->
+            val sel = g == vm.selectedGroup
+            Focusable(onClick = { vm.selectedGroup = g }, selected = sel, shape = RoundedCornerShape(50), focusedScale = 1.03f) { focused ->
+                Text(
+                    g, color = if (sel || focused) Palette.Text else Palette.TextDim, fontSize = 14.sp,
+                    fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                )
             }
         }
     }
@@ -124,7 +162,7 @@ private fun GroupList(vm: AppViewModel, modifier: Modifier) {
 }
 
 @Composable
-private fun ChannelGrid(vm: AppViewModel, modifier: Modifier) {
+private fun ChannelGrid(vm: AppViewModel, narrow: Boolean, modifier: Modifier) {
     val channels = vm.channelsIn(vm.selectedGroup)
     val gridState = rememberLazyGridState()
     val lastKey = vm.currentChannel?.key ?: vm.repo.lastChannelKey
@@ -149,12 +187,12 @@ private fun ChannelGrid(vm: AppViewModel, modifier: Modifier) {
     }
 
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(190.dp),
+        columns = GridCells.Adaptive(if (narrow) 150.dp else 190.dp),
         state = gridState,
         modifier = modifier,
-        contentPadding = PaddingValues(start = 12.dp, end = 32.dp, top = 8.dp, bottom = 32.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = if (narrow) PaddingValues(16.dp) else PaddingValues(start = 12.dp, end = 32.dp, top = 8.dp, bottom = 32.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (narrow) 12.dp else 16.dp),
+        verticalArrangement = Arrangement.spacedBy(if (narrow) 12.dp else 16.dp),
     ) {
         itemsIndexed(channels, key = { _, c -> c.key }) { _, ch ->
             ChannelCard(

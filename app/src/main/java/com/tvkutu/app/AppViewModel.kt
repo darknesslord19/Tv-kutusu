@@ -15,7 +15,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-enum class Screen { Setup, Home, Player }
+enum class Screen { Setup, QrSetup, Home, Player }
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -40,8 +40,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var message by mutableStateOf<String?>(null)
         private set
+    /** Son liste yükleme hatası (ayarlar ekranında gösterilir). */
+    var loadError by mutableStateOf<String?>(null)
+        private set
 
     var now by mutableLongStateOf(System.currentTimeMillis())
+        private set
+
+    var updateHours by mutableStateOf(repo.updateHours)
         private set
 
     var selectedGroup by mutableStateOf(ALL)
@@ -55,6 +61,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             while (true) {
                 now = System.currentTimeMillis()
                 delay(30_000)
+            }
+        }
+        // Uygulama açıkken seçilen aralıkla liste ve yayın akışını yenile.
+        viewModelScope.launch {
+            while (true) {
+                delay(15 * 60_000L)
+                if (playlist != null && !loading && repo.isStale()) refresh(silent = true)
             }
         }
         if (repo.hasPlaylist) start()
@@ -103,6 +116,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (!silent) loading = true
             try {
                 val pl = repo.downloadPlaylist()
+                loadError = null
                 playlist = pl
                 if (selectedGroup !in groups) selectedGroup = ALL
                 loading = false
@@ -110,6 +124,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 if (!silent) message = "Liste güncellendi: ${pl.channels.size} kanal"
             } catch (e: Exception) {
                 message = "Liste yüklenemedi: ${e.message ?: e.javaClass.simpleName}"
+                loadError = message
                 if (playlist == null && !silent) {
                     setupFromSettings = false
                     screen = Screen.Setup
@@ -152,6 +167,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun closeSettings() {
         if (repo.hasPlaylist) screen = Screen.Home
+    }
+
+    fun openQrSetup() {
+        screen = Screen.QrSetup
+    }
+
+    fun closeQrSetup() {
+        screen = Screen.Setup
+    }
+
+    /** Telefondan gelen linkler. */
+    fun applyFromPhone(playlistUrl: String, epgUrl: String) {
+        message = null
+        saveSetup(playlistUrl, epgUrl)
+        message = "Linkler telefondan alındı, liste yükleniyor…"
+    }
+
+    fun setUpdateInterval(hours: Int) {
+        repo.updateHours = hours
+        updateHours = hours
     }
 
     fun play(channel: Channel) {

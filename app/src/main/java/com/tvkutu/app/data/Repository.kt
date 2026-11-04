@@ -40,6 +40,11 @@ class Repository(context: Context) {
         get() = prefs.getString("last_channel", null)
         set(v) = prefs.edit().putString("last_channel", v).apply()
 
+    /** Otomatik güncelleme aralığı (saat). 0 = kapalı. */
+    var updateHours: Int
+        get() = prefs.getInt("update_hours", 12)
+        set(v) = prefs.edit().putInt("update_hours", v).apply()
+
     val hasPlaylist get() = playlistUrl.isNotBlank()
 
     // ---- Favoriler ----
@@ -90,7 +95,10 @@ class Repository(context: Context) {
         }
     }
 
-    fun isStale(): Boolean = System.currentTimeMillis() - lastUpdatedMs > 12 * HOUR
+    fun isStale(): Boolean {
+        val h = updateHours
+        return h > 0 && System.currentTimeMillis() - lastUpdatedMs > h * HOUR
+    }
 
     private fun download(url: String, target: File) {
         val req = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()

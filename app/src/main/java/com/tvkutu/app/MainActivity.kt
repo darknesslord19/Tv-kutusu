@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import com.tvkutu.app.ui.HomeScreen
 import com.tvkutu.app.ui.Palette
 import com.tvkutu.app.ui.PlayerScreen
+import com.tvkutu.app.ui.QrSetupScreen
 import com.tvkutu.app.ui.SetupScreen
 import com.tvkutu.app.ui.TvKutuTheme
 
@@ -25,6 +26,7 @@ class MainActivity : ComponentActivity() {
                 Box(Modifier.fillMaxSize().background(Palette.Bg)) {
                     when (vm.screen) {
                         Screen.Setup -> SetupScreen(vm)
+                        Screen.QrSetup -> QrSetupScreen(vm)
                         Screen.Home -> HomeScreen(vm)
                         Screen.Player -> PlayerScreen(vm)
                     }
