@@ -26,6 +26,9 @@ class SetupServer(
     private val currentEpg: String,
     private val onSubmit: (entries: List<Pair<String, String>>, epg: String) -> Unit,
 ) {
+    /** Telefondan gelen form: (ad, link) listesi ve EPG linkleri. */
+    data class Submission(val entries: List<Pair<String, String>>, val epg: String)
+
     val code: String = randomCode()
     @Volatile private var socket: ServerSocket? = null
     @Volatile var finished = false
@@ -256,8 +259,6 @@ class SetupServer(
     }
 
     companion object {
-        data class Submission(val entries: List<Pair<String, String>>, val epg: String)
-
         /** application/x-www-form-urlencoded gövdesini sıralı (ad, değer) listesine çevirir. */
         fun parseFormList(body: String): List<Pair<String, String>> =
             body.split('&').filter { it.isNotEmpty() }.map { kv ->
