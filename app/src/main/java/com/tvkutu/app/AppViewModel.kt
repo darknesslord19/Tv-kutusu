@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
@@ -67,6 +68,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var streamFormat by mutableStateOf(repo.streamFormat)
         private set
+    var posterMode by mutableStateOf(repo.posterMode)
+        private set
+    var posterTitle by mutableStateOf(repo.posterTitle)
+        private set
+
+    /** Yüklenen görsellerin en/boy oranı (logo adresi → genişlik/yükseklik). */
+    private val aspects = mutableStateMapOf<String, Float>()
 
     var selectedGroup by mutableStateOf(ALL)
     var currentChannel by mutableStateOf<Channel?>(null)
@@ -115,6 +123,50 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             else -> groupIndex[group].orEmpty()
         }
     }
+
+    fun reportAspect(url: String, ratio: Float) {
+        if (ratio > 0f && url !in aspects) aspects[url] = ratio
+    }
+
+    /**
+     * Bu kategori afiş kartlarıyla mı gösterilsin?
+     * Otomatik modda: görseller yüklendikçe ölçülen oranlara (dikey = afiş) bakılır;
+     * henüz ölçüm yoksa linklerden tahmin edilir (film/dizi uzantıları, TMDB afişleri).
+     */
+    fun isPosterGroup(groupId: String): Boolean = when (posterMode) {
+        "always" -> true
+        "never" -> false
+        else -> {
+            val sample = channelsIn(groupId).take(24)
+            val measured = sample.mapNotNull { ch -> logoOf(ch)?.let { aspects[it] } }
+            if (measured.size >= 3) measured.count { it < 0.85f } * 2 > measured.size
+            else sample.isNotEmpty() && sample.count { looksLikeVod(it) } * 2 > sample.size
+        }
+    }
+
+    private fun looksLikeVod(ch: Channel): Boolean {
+        val logo = logoOf(ch).orEmpty()
+        return VOD_URL.containsMatchIn(ch.url) || logo.contains("tmdb.org", true) ||
+            logo.contains("/w600_and_h900", true) || logo.contains("poster", true)
+    }
+
+    /** "Tüm kanallar" ya da bir liste başlığı seçiliyken satır satır gösterilecek kategoriler. */
+    fun rowGroups(selected: String): List<GroupItem> {
+        val items = groups
+        return when {
+            selected == ALL -> items.filter { it.id == FAVORITES || it.id.startsWith("grp:") }
+            selected.startsWith("src:") -> {
+                val sid = selected.removePrefix("src:")
+                items.filter { it.id.startsWith("grp:$sid\u0001") }
+            }
+            else -> emptyList()
+        }
+    }
+
+    fun showsRows(selected: String) = selected == ALL || selected.startsWith("src:")
+
+    fun setPosterModeOption(v: String) { repo.posterMode = v; posterMode = v }
+    fun setPosterTitleOption(v: String) { repo.posterTitle = v; posterTitle = v }
 
     /** Kanal logosu: listedeki tvg-logo, yoksa EPG'deki ikon. */
     fun logoOf(ch: Channel): String? = ch.logo ?: epg.logo(ch)
@@ -345,5 +397,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         const val FAVORITES = "★ Favoriler"
         const val PLAYER_INTERNAL = "internal"
         const val PLAYER_EXTERNAL = "external"
+        private val VOD_URL = Regex("""(?i)(/movies?/|/series/|/vod/|\.(mp4|mkv|avi|m4v|mov|webm)(\?|$))""")
     }
 }

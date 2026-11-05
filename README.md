@@ -10,10 +10,12 @@ Kumandayla kullanılan, sade ve hızlı bir IPTV oynatıcı. Kendi m3u/m3u8 list
 
 Her `main` dalına gönderilen değişiklikte GitHub Actions APK'yı otomatik derler ve yeni bir sürüm (Release) olarak yayınlar.
 
-## Özellikler (v0.4)
+## Özellikler (v0.5)
 
 - **Kumanda için tasarlandı:** her ekran ok tuşları, OK ve Geri ile çalışır.
 - **Birden çok liste:** istediğin kadar m3u/m3u8 linki ekle (en fazla 20). Her listenin kategorileri ana ekranda o listenin başlığı altında ayrı görünür; bir liste açılmazsa diğerleri çalışmaya devam eder.
+- **Afiş kartları:** film ve dizi kategorilerinde afiş kartı tamamen doldurur (otomatik algılama, ya da hep afiş / hep logo). Ad afişin üstünde ya da altında. TV'de solda kategoriler, sağda afiş ızgarası; kumandanın üzerindeki afiş büyür ve adını gösterir.
+- **Kategori satırları:** "Tüm kanallar" seçiliyken her kategori yatay kayan bir satır olarak listelenir ("Tümü" ile kategoriye geçilir).
 - **Kanal ızgarası:** logo, şu anki program ve ilerleme çubuğu; kategoriler listedeki sırayla.
 - **Kanal logoları:** `tvg-logo` / `logo` (göreli yollar da), yoksa EPG'deki kanal ikonu; PNG, JPG, WebP ve SVG. Logo yoksa kanal adının baş harfleri görünür.
 - **Favoriler:** oynatıcıda OK → "Favorilere ekle". Favoriler kategorisi en üstte görünür.

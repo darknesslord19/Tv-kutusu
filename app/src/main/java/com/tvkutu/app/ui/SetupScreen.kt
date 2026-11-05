@@ -226,6 +226,38 @@ fun SetupScreen(vm: AppViewModel) {
                     if (vm.setupFromSettings) TvButton("Vazgeç", onClick = { vm.closeSettings() })
                 }
 
+                // ---- Görünüm ----
+                Section("Görünüm")
+                Text("Kanal kartları nasıl görünsün?", color = Palette.TextDim, fontSize = 15.sp)
+                Spacer(Modifier.height(14.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    listOf(
+                        "auto" to "Otomatik (filmler afiş, TV logo)",
+                        "always" to "Hep afiş",
+                        "never" to "Hep logo",
+                    ).forEach { (v, label) -> Chip(label, selected = vm.posterMode == v) { vm.setPosterModeOption(v) } }
+                }
+                if (vm.posterMode != "never") {
+                    Spacer(Modifier.height(18.dp))
+                    Text("Afiş kartında ad nerede dursun?", color = Palette.TextDim, fontSize = 15.sp)
+                    Spacer(Modifier.height(14.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Chip("Afişin üstünde", selected = vm.posterTitle == "overlay") { vm.setPosterTitleOption("overlay") }
+                        Chip("Afişin altında", selected = vm.posterTitle == "below") { vm.setPosterTitleOption("below") }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "TV'de ad, kumanda afişin üzerine gelince görünür. \"Tüm kanallar\" seçiliyken kategoriler satır satır listelenir.",
+                        color = Palette.TextDim, fontSize = 13.sp,
+                    )
+                }
+
                 // ---- Oynatıcı ----
                 Section("Oynatıcı")
                 Text("Kanallar hangi oynatıcıda açılsın?", color = Palette.TextDim, fontSize = 15.sp)

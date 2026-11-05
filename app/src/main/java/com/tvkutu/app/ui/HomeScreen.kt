@@ -1,6 +1,22 @@
 package com.tvkutu.app.ui
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -34,12 +50,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.tvkutu.app.AppViewModel
 import com.tvkutu.app.data.Channel
 import kotlinx.coroutines.delay
@@ -89,11 +103,11 @@ fun HomeScreen(vm: AppViewModel) {
                 }
                 narrow -> Column(Modifier.fillMaxSize()) {
                     GroupChips(vm)
-                    ChannelGrid(vm, narrow = true, modifier = Modifier.weight(1f).fillMaxWidth())
+                    Content(vm, narrow = true, modifier = Modifier.weight(1f).fillMaxWidth())
                 }
                 else -> Row(Modifier.fillMaxSize()) {
-                    GroupList(vm, Modifier.width(240.dp).fillMaxHeight())
-                    ChannelGrid(vm, narrow = false, modifier = Modifier.weight(1f).fillMaxHeight())
+                    GroupList(vm, Modifier.width(250.dp).fillMaxHeight())
+                    Content(vm, narrow = false, modifier = Modifier.weight(1f).fillMaxHeight())
                 }
             }
         }
@@ -177,9 +191,59 @@ private fun GroupList(vm: AppViewModel, modifier: Modifier) {
     }
 }
 
+/** Seçili kategoriye göre: "Tüm kanallar"/liste başlığında kategori satırları, aksi halde ızgara. */
+@Composable
+private fun Content(vm: AppViewModel, narrow: Boolean, modifier: Modifier) {
+    if (vm.showsRows(vm.selectedGroup)) CategoryRows(vm, narrow, modifier)
+    else ChannelGrid(vm, narrow, modifier)
+}
+
+@Composable
+private fun CategoryRows(vm: AppViewModel, narrow: Boolean, modifier: Modifier) {
+    val rows = vm.rowGroups(vm.selectedGroup)
+    val pad = if (narrow) 16.dp else 12.dp
+    val listState = rememberLazyListState()
+    LaunchedEffect(vm.selectedGroup) { listState.scrollToItem(0) }
+    LazyColumn(modifier, state = listState, contentPadding = PaddingValues(bottom = 32.dp)) {
+        items(rows, key = { it.id }) { g ->
+            val chans = remember(g.id, vm.playlist, vm.favorites) { vm.channelsIn(g.id).take(ROW_LIMIT) }
+            val poster = vm.isPosterGroup(g.id)
+            Column(Modifier.padding(top = 18.dp)) {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = pad, end = if (narrow) 16.dp else 32.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        vm.groupLabel(g.id), color = Palette.Text, fontSize = if (narrow) 17.sp else 19.sp,
+                        fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TvButton("Tümü · ${g.count}", onClick = { vm.selectedGroup = g.id })
+                }
+                LazyRow(
+                    contentPadding = PaddingValues(start = pad, end = if (narrow) 16.dp else 32.dp, top = 6.dp, bottom = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (narrow) 10.dp else 16.dp),
+                ) {
+                    items(chans, key = { it.key }) { ch ->
+                        if (poster) {
+                            PosterCard(
+                                vm, ch, tv = !narrow, titleBelow = vm.posterTitle == "below", inRow = true,
+                                modifier = Modifier.width(if (narrow) 108.dp else 150.dp),
+                            )
+                        } else {
+                            LogoCard(vm, ch, Modifier.width(if (narrow) 150.dp else 200.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun ChannelGrid(vm: AppViewModel, narrow: Boolean, modifier: Modifier) {
     val channels = vm.channelsIn(vm.selectedGroup)
+    val poster = vm.isPosterGroup(vm.selectedGroup)
     val gridState = rememberLazyGridState()
     val lastKey = vm.currentChannel?.key ?: vm.repo.lastChannelKey
     val returnFocus = remember { FocusRequester() }
@@ -202,31 +266,107 @@ private fun ChannelGrid(vm: AppViewModel, narrow: Boolean, modifier: Modifier) {
         }
     }
 
+    val cell = when {
+        poster && narrow -> 100.dp
+        poster -> 140.dp
+        narrow -> 150.dp
+        else -> 190.dp
+    }
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(if (narrow) 150.dp else 190.dp),
+        columns = GridCells.Adaptive(cell),
         state = gridState,
         modifier = modifier,
-        contentPadding = if (narrow) PaddingValues(16.dp) else PaddingValues(start = 12.dp, end = 32.dp, top = 8.dp, bottom = 32.dp),
-        horizontalArrangement = Arrangement.spacedBy(if (narrow) 12.dp else 16.dp),
-        verticalArrangement = Arrangement.spacedBy(if (narrow) 12.dp else 16.dp),
+        contentPadding = if (narrow) PaddingValues(16.dp) else PaddingValues(start = 12.dp, end = 32.dp, top = 12.dp, bottom = 32.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (narrow) 10.dp else 18.dp),
+        verticalArrangement = Arrangement.spacedBy(if (narrow) 12.dp else 22.dp),
     ) {
         itemsIndexed(channels, key = { _, c -> c.key }) { _, ch ->
-            ChannelCard(
-                vm, ch,
-                Modifier.then(if (ch.key == lastKey) Modifier.focusRequester(returnFocus) else Modifier),
+            val m = if (ch.key == lastKey) Modifier.focusRequester(returnFocus) else Modifier
+            if (poster) {
+                PosterCard(vm, ch, tv = !narrow, titleBelow = vm.posterTitle == "below", inRow = false, modifier = m)
+            } else {
+                LogoCard(vm, ch, m)
+            }
+        }
+    }
+}
+
+/**
+ * Afiş kartı. Telefonda ad afişin alt kısmında koyu şeritte durur; TV'de şerit yalnızca
+ * kumanda kartın üzerindeyken görünür ve kart biraz büyür. "Altta" seçeneğinde ad afişin altında.
+ */
+@Composable
+private fun PosterCard(
+    vm: AppViewModel,
+    ch: Channel,
+    tv: Boolean,
+    titleBelow: Boolean,
+    inRow: Boolean,
+    modifier: Modifier,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) (if (tv) 1.08f else 1.04f) else 1f, label = "poster")
+    val shape = RoundedCornerShape(10.dp)
+    val image = vm.logoOf(ch)
+    val showOverlay = !titleBelow && !inRow && (!tv || focused) || (!titleBelow && inRow && focused)
+    Column(
+        modifier
+            .zIndex(if (focused) 1f else 0f)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { vm.play(ch) },
+    ) {
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(2f / 3f)
+                .scale(scale)
+                .shadow(if (focused) 12.dp else 0.dp, shape)
+                .then(if (focused) Modifier.border(3.dp, Palette.Accent, shape) else Modifier)
+                .clip(shape),
+        ) {
+            PosterArt(image, ch.name, Modifier.fillMaxSize(), onAspect = { r -> image?.let { vm.reportAspect(it, r) } })
+            if (ch.key in vm.favorites) {
+                Box(
+                    Modifier.align(Alignment.TopEnd).padding(6.dp).size(22.dp)
+                        .background(Color(0x8C000000), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) { Text("★", color = Palette.Fav, fontSize = 12.sp) }
+            }
+            if (showOverlay) {
+                Column(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF2080A0D))))
+                        .padding(start = 8.dp, end = 8.dp, top = 26.dp, bottom = 8.dp),
+                ) {
+                    Text(
+                        ch.name, color = Color.White, fontSize = if (tv) 14.sp else 12.sp, fontWeight = FontWeight.Bold,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = if (tv) 17.sp else 15.sp,
+                    )
+                    if (tv && focused) {
+                        Text("OK ile oynat", color = Color(0xFFB7BFCC), fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+        if (titleBelow) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                ch.name, color = if (focused) Palette.Text else Palette.Text.copy(alpha = 0.9f),
+                fontSize = if (tv) 14.sp else 12.sp, fontWeight = FontWeight.Bold,
+                maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = if (tv) 17.sp else 15.sp,
             )
         }
     }
 }
 
+/** Canlı TV kartı: logo, kanal adı, şu anki program ve ilerleme. */
 @Composable
-private fun ChannelCard(vm: AppViewModel, ch: Channel, modifier: Modifier) {
+private fun LogoCard(vm: AppViewModel, ch: Channel, modifier: Modifier) {
     val now = vm.now
     val cur = vm.epg.current(ch, now)
+    val logo = vm.logoOf(ch)
     Focusable(onClick = { vm.play(ch) }, modifier = modifier.fillMaxWidth()) { focused ->
         Column(Modifier.padding(10.dp)) {
             Box(Modifier.fillMaxWidth().height(84.dp)) {
-                ChannelLogo(vm.logoOf(ch), ch.name, Modifier.fillMaxSize())
+                ChannelLogo(logo, ch.name, Modifier.fillMaxSize(), onAspect = { r -> logo?.let { vm.reportAspect(it, r) } })
                 if (ch.key in vm.favorites) {
                     Text("★", color = Palette.Fav, fontSize = 16.sp,
                         modifier = Modifier.align(Alignment.TopEnd).padding(6.dp))
@@ -254,3 +394,5 @@ private fun ChannelCard(vm: AppViewModel, ch: Channel, modifier: Modifier) {
         }
     }
 }
+
+private const val ROW_LIMIT = 30

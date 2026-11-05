@@ -86,6 +86,16 @@ class Repository(context: Context) {
         get() = prefs.getString("stream_format", "auto") ?: "auto"
         set(v) = prefs.edit().putString("stream_format", v).apply()
 
+    /** Afiş kartları: "auto" (görsel/linke göre), "always" (hep afiş), "never" (hep logo). */
+    var posterMode: String
+        get() = prefs.getString("poster_mode", "auto") ?: "auto"
+        set(v) = prefs.edit().putString("poster_mode", v).apply()
+
+    /** Afiş kartında ad: "overlay" (afişin üstünde) veya "below" (afişin altında). */
+    var posterTitle: String
+        get() = prefs.getString("poster_title", "overlay") ?: "overlay"
+        set(v) = prefs.edit().putString("poster_title", v).apply()
+
     val hasPlaylist get() = sources.isNotEmpty()
 
     // ---- Favoriler ----
