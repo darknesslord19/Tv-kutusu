@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -70,7 +71,11 @@ fun HomeScreen(vm: AppViewModel) {
                 Modifier.fillMaxWidth().padding(horizontal = if (narrow) 16.dp else 32.dp, vertical = if (narrow) 12.dp else 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("TvKutu", color = Palette.Accent, fontSize = if (narrow) 22.sp else 26.sp, fontWeight = FontWeight.Bold)
+                if (!narrow || vm.activeSource == null) {
+                    Text("TvKutu", color = Palette.Accent, fontSize = if (narrow) 22.sp else 26.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(16.dp))
+                }
+                AccountChip(vm, narrow)
                 if (!narrow) {
                     Spacer(Modifier.width(16.dp))
                     StatusText(vm, Modifier.weight(1f, fill = false))
@@ -114,6 +119,26 @@ fun HomeScreen(vm: AppViewModel) {
     }
 }
 
+/** Üst çubukta aktif hesap: renkli nokta + ad. Basınca hesap seçme ekranı açılır. */
+@Composable
+private fun AccountChip(vm: AppViewModel, narrow: Boolean) {
+    val a = vm.activeSource ?: return
+    Focusable(onClick = { vm.openAccounts() }, shape = RoundedCornerShape(50), focusedScale = 1.04f) { focused ->
+        Row(
+            Modifier.padding(start = 10.dp, end = 14.dp, top = 8.dp, bottom = 8.dp).widthIn(max = if (narrow) 130.dp else 280.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(14.dp).background(parseHex(a.color), CircleShape))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                a.name, color = if (focused) Palette.Accent else Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+            )
+            Text(if (narrow) "" else "  ·  Hesap değiştir", color = Palette.TextDim, fontSize = 13.sp, maxLines = 1)
+        }
+    }
+}
+
 @Composable
 private fun StatusText(vm: AppViewModel, modifier: Modifier) {
     val text = if (vm.epgLoading) "Yayın akışı yükleniyor…" else vm.message
@@ -131,9 +156,9 @@ private fun GroupChips(vm: AppViewModel) {
     ) {
         items(vm.groups, key = { it.id }) { g ->
             val sel = g.id == vm.selectedGroup
-            Focusable(onClick = { vm.selectedGroup = g.id }, selected = sel || g.isSource, shape = RoundedCornerShape(50), focusedScale = 1.03f) { focused ->
+            Focusable(onClick = { vm.selectGroup(g.id) }, selected = sel, shape = RoundedCornerShape(50), focusedScale = 1.03f) { focused ->
                 Text(
-                    if (g.isSource) "▸ ${g.label}" else g.label,
+                    if (g.locked) "🔒 ${g.label}" else g.label,
                     color = when {
                         g.isSource -> Palette.Accent
                         sel || focused -> Palette.Text
@@ -162,8 +187,8 @@ private fun GroupList(vm: AppViewModel, modifier: Modifier) {
             Column {
             if (g.isSource) Spacer(Modifier.height(10.dp))
             Focusable(
-                onClick = { vm.selectedGroup = g.id },
-                onFocus = { vm.selectedGroup = g.id },
+                onClick = { vm.selectGroup(g.id) },
+                onFocus = { vm.selectGroup(g.id, fromFocus = true) },
                 selected = sel,
                 focusedScale = 1.02f,
                 modifier = Modifier.fillMaxWidth()
@@ -171,7 +196,7 @@ private fun GroupList(vm: AppViewModel, modifier: Modifier) {
             ) { focused ->
                 Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        g.label,
+                        if (g.locked) "🔒 ${g.label}" else g.label,
                         color = when {
                             g.isSource -> Palette.Accent
                             focused || sel -> Palette.Text
@@ -218,7 +243,7 @@ private fun CategoryRows(vm: AppViewModel, narrow: Boolean, modifier: Modifier) 
                         fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    TvButton("Tümü · ${g.count}", onClick = { vm.selectedGroup = g.id })
+                    TvButton("Tümü · ${g.count}", onClick = { vm.selectGroup(g.id) })
                 }
                 LazyRow(
                     contentPadding = PaddingValues(start = pad, end = if (narrow) 16.dp else 32.dp, top = 6.dp, bottom = 6.dp),
@@ -245,7 +270,7 @@ private fun ChannelGrid(vm: AppViewModel, narrow: Boolean, modifier: Modifier) {
     val channels = vm.channelsIn(vm.selectedGroup)
     val poster = vm.isPosterGroup(vm.selectedGroup)
     val gridState = rememberLazyGridState()
-    val lastKey = vm.currentChannel?.key ?: vm.repo.lastChannelKey
+    val lastKey = vm.lastChannelKey()
     val returnFocus = remember { FocusRequester() }
 
     val firstRun = remember { booleanArrayOf(true) }

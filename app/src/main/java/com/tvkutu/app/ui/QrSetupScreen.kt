@@ -1,8 +1,6 @@
 package com.tvkutu.app.ui
 
 import android.graphics.Bitmap
-import android.os.Handler
-import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -23,16 +21,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,48 +43,14 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import com.tvkutu.app.AppViewModel
-import com.tvkutu.app.data.SetupServer
 
-private sealed interface QrState {
-    data object Starting : QrState
-    data class Ready(val url: String, val qr: ImageBitmap) : QrState
-    data class Error(val text: String) : QrState
-}
-
+/** Telefondan yönetme ekranı: kalıcı kumanda adresinin karekodu ve adımlar. */
 @Composable
 fun QrSetupScreen(vm: AppViewModel) {
-    var attempt by remember { mutableIntStateOf(0) }
-    var state by remember { mutableStateOf<QrState>(QrState.Starting) }
-    val main = remember { Handler(Looper.getMainLooper()) }
-
     BackHandler { vm.closeQrSetup() }
+    val url = vm.remoteUrl
 
-    DisposableEffect(attempt) {
-        state = QrState.Starting
-        var server: SetupServer? = null
-        val ip = SetupServer.localIpv4()
-        if (ip == null) {
-            state = QrState.Error("TV bir ağa bağlı görünmüyor. Wi‑Fi veya kablo bağlantısını kontrol edip tekrar dene.")
-        } else {
-            try {
-                val s = SetupServer(vm.sources.map { it.name to it.url }, vm.repo.epgUrl) { entries, epg ->
-                    main.post { vm.applyFromPhone(entries, epg) }
-                }
-                val port = s.start()
-                server = s
-                val url = "http://$ip:$port/s/${s.code}"
-                state = QrState.Ready(url, qrBitmap(url))
-            } catch (e: Exception) {
-                state = QrState.Error("Kurulum sayfası başlatılamadı: ${e.message ?: e.javaClass.simpleName}")
-            }
-        }
-        onDispose { server?.stop() }
-    }
-
-    BoxWithConstraints(
-        Modifier.fillMaxSize().background(Palette.Bg),
-        contentAlignment = Alignment.Center,
-    ) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(Palette.Bg), contentAlignment = Alignment.Center) {
         val wide = maxWidth >= 600.dp
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState())
@@ -101,29 +59,31 @@ fun QrSetupScreen(vm: AppViewModel) {
             verticalArrangement = Arrangement.Center,
         ) {
             Column(Modifier.widthIn(max = 900.dp).fillMaxWidth()) {
-                Text("TELEFONDAN KURULUM", color = Palette.Accent, fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Text("TELEFONDAN YÖNET", color = Palette.Accent, fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 Spacer(Modifier.height(4.dp))
-                Text("Linkleri telefonundan gönder", color = Palette.Text,
-                    fontSize = if (wide) 30.sp else 24.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Hesaplarını telefondan seç, ekle, düzenle", color = Palette.Text,
+                    fontSize = if (wide) 30.sp else 24.sp, fontWeight = FontWeight.Bold,
+                )
                 Spacer(Modifier.height(if (wide) 28.dp else 20.dp))
-
-                when (val st = state) {
-                    QrState.Starting -> Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Palette.Accent)
-                    }
-                    is QrState.Error -> ErrorBlock(st.text, onRetry = { attempt++ }, onBack = { vm.closeQrSetup() })
-                    is QrState.Ready -> if (wide) {
+                if (url == null) {
+                    ErrorBlock(
+                        "TV bir ağa bağlı görünmüyor. Wi‑Fi veya kablo bağlantısını kontrol edip tekrar dene.",
+                        onRetry = { vm.startRemote() }, onBack = { vm.closeQrSetup() },
+                    )
+                } else {
+                    val qr = remember(url) { qrBitmap(url) }
+                    if (wide) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            QrCard(st.qr, 300.dp)
+                            QrCard(qr, 300.dp)
                             Spacer(Modifier.width(48.dp))
-                            Steps(st.url, onBack = { vm.closeQrSetup() }, modifier = Modifier.weight(1f))
+                            Steps(url, onBack = { vm.closeQrSetup() }, modifier = Modifier.weight(1f))
                         }
                     } else {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                            QrCard(st.qr, 240.dp)
+                            QrCard(qr, 240.dp)
                             Spacer(Modifier.height(24.dp))
-                            Steps(st.url, onBack = { vm.closeQrSetup() }, modifier = Modifier.fillMaxWidth())
+                            Steps(url, onBack = { vm.closeQrSetup() }, modifier = Modifier.fillMaxWidth())
                         }
                     }
                 }
@@ -133,13 +93,12 @@ fun QrSetupScreen(vm: AppViewModel) {
 }
 
 @Composable
-private fun QrCard(qr: ImageBitmap, size: Dp) {
+fun QrCard(qr: ImageBitmap, size: Dp, padding: Dp = 14.dp) {
     Box(
-        Modifier.size(size).clip(RoundedCornerShape(16.dp)).background(Color.White).padding(14.dp),
+        Modifier.size(size).clip(RoundedCornerShape(16.dp)).background(Color.White).padding(padding),
         contentAlignment = Alignment.Center,
     ) {
-        Image(qr, contentDescription = "Kurulum karekodu", filterQuality = FilterQuality.None,
-            modifier = Modifier.fillMaxSize())
+        Image(qr, contentDescription = "Telefondan yönetme karekodu", filterQuality = FilterQuality.None, modifier = Modifier.fillMaxSize())
     }
 }
 
@@ -150,7 +109,7 @@ private fun Steps(url: String, onBack: () -> Unit, modifier: Modifier) {
     Column(modifier) {
         Step(1, "Telefonun TV ile aynı Wi‑Fi ağına bağlı olsun.")
         Step(2, "Telefonun kamerasıyla karekodu okut ve açılan linke dokun.")
-        Step(3, "Bir ya da birden çok playlist linkini (istersen EPG'yi de) yapıştır, \"Gönder\"e dokun.")
+        Step(3, "\"Hesap Seç\" sayfasında hesaba dokun ya da ＋ ile yenisini ekle. Seçtiğin hesap burada hemen açılır.")
         Spacer(Modifier.height(12.dp))
         Text("Karekod okumazsa telefonun tarayıcısında şu adresi aç:", color = Palette.TextDim, fontSize = 14.sp)
         Spacer(Modifier.height(6.dp))
@@ -160,16 +119,12 @@ private fun Steps(url: String, onBack: () -> Unit, modifier: Modifier) {
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         )
         Spacer(Modifier.height(20.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            CircularProgressIndicator(color = Palette.Accent, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(10.dp))
-            Text("Telefon bekleniyor…", color = Palette.TextDim, fontSize = 15.sp)
-        }
-        Spacer(Modifier.height(20.dp))
         TvButton("Geri", onClick = onBack, modifier = Modifier.focusRequester(backFocus))
         Spacer(Modifier.height(10.dp))
-        Text("Sayfa yalnızca evindeki ağda çalışır, tek kullanımlıktır ve gönderimden sonra kapanır.",
-            color = Palette.TextDim, fontSize = 12.sp)
+        Text(
+            "Sayfayı telefonunda yer imlerine ekleyebilirsin; adres değişmez. Telefon sayfasında ayrıca kanal arama ve yedekleme var. Sayfa yalnızca evindeki ağda, TvKutu açıkken çalışır.",
+            color = Palette.TextDim, fontSize = 12.sp,
+        )
     }
 }
 
@@ -201,7 +156,7 @@ private fun ErrorBlock(text: String, onRetry: () -> Unit, onBack: () -> Unit) {
     }
 }
 
-private fun qrBitmap(text: String): ImageBitmap {
+fun qrBitmap(text: String): ImageBitmap {
     val hints = mapOf(EncodeHintType.MARGIN to 0, EncodeHintType.CHARACTER_SET to "UTF-8")
     val m = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 0, 0, hints)
     val w = m.width

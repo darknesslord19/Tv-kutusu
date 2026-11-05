@@ -1,11 +1,30 @@
 package com.tvkutu.app.data
 
-/** Kullanıcının eklediği bir playlist linki. */
+/** Bir hesap: kullanıcının eklediği bir playlist linki ve ayarları. */
 data class Source(
     val id: String,
     val name: String,
     val url: String,
-)
+    /** Kutucuk rengi (#RRGGBB). */
+    val color: String = "",
+    /** Bu hesaba özel EPG linkleri (satır/virgülle ayrılmış). Boşsa listedeki url-tvg. */
+    val epg: String = "",
+    /** PIN olmadan açılamaz. */
+    val locked: Boolean = false,
+    /** Son başarılı yüklemedeki kanal sayısı (0 = bilinmiyor). */
+    val count: Int = 0,
+    /** Son kontrol/yükleme hatası (boş = sorun yok). */
+    val error: String = "",
+    /** Son kontrol zamanı (ms). */
+    val checkedMs: Long = 0L,
+) {
+    fun epgList(): List<String> =
+        epg.split(',', '\n', ' ').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+
+    companion object {
+        val COLORS = listOf("#3B2470", "#5A1A1F", "#0F4A4A", "#1C3566", "#5A3A10", "#1D4A2E", "#4A2040", "#2E3440")
+    }
+}
 
 data class Channel(
     /** Kalıcı anahtar (favoriler için): kaynak kimliği + tvg-id ya da ad + url. */

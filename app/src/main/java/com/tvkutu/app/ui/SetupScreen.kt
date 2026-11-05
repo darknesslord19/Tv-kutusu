@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -27,7 +29,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -46,21 +47,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tvkutu.app.AppViewModel
 import com.tvkutu.app.BuildConfig
-import com.tvkutu.app.data.SetupServer
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SetupScreen(vm: AppViewModel) {
-    val entries = remember { mutableStateListOf<Pair<String, String>>().apply { addAll(vm.sources.map { it.name to it.url }) } }
     var newName by rememberSaveable { mutableStateOf("") }
     var newUrl by rememberSaveable { mutableStateOf("") }
-    var epg by rememberSaveable { mutableStateOf(vm.repo.epgList().joinToString(", ")) }
+    var newEpg by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     val focusManager = LocalFocusManager.current
     val qrFocus = remember { FocusRequester() }
-    val firstRun = !vm.setupFromSettings
+    val firstRun = !vm.setupFromSettings || vm.sources.isEmpty()
 
-    BackHandler(enabled = vm.setupFromSettings) { vm.closeSettings() }
+    BackHandler(enabled = vm.setupFromSettings && vm.activeSource != null) { vm.closeSettings() }
     // Kumandayla en kolay yol telefondan kurulum: odağı oraya koy.
     LaunchedEffect(Unit) { runCatching { qrFocus.requestFocus() } }
 
@@ -76,33 +75,9 @@ fun SetupScreen(vm: AppViewModel) {
         cursorColor = Palette.Accent,
     )
 
-    fun isUrl(u: String) = u.startsWith("http://", true) || u.startsWith("https://", true)
-
-    fun addNew(): Boolean {
-        val u = newUrl.trim()
-        if (u.isEmpty()) return true
-        if (!isUrl(u)) {
-            error = "Link http:// veya https:// ile başlamalı."
-            return false
-        }
-        if (entries.none { it.second == u }) entries += newName.trim() to u
-        newName = ""; newUrl = ""; error = null
-        return true
-    }
-
-    fun save() {
-        if (!addNew()) return
-        val sub = SetupServer.Submission(
-            entries.toList(),
-            epg.split(',', ' ', '\n').map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n"),
-        )
-        error = SetupServer.validate(sub)?.let {
-            if (entries.isEmpty()) "En az bir playlist linki ekle ya da telefondan kurulumu kullan." else it
-        }
-        if (error == null) {
-            vm.consumeMessage()
-            vm.saveSetup(sub.entries, sub.epg)
-        }
+    fun addNew() {
+        error = vm.addAccountManual(newName, newUrl, newEpg)
+        if (error == null) { newName = ""; newUrl = ""; newEpg = "" }
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Palette.Bg)) {
@@ -117,16 +92,19 @@ fun SetupScreen(vm: AppViewModel) {
                     Text("TvKutu", color = Palette.Accent, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     Text("Hoş geldin", color = Palette.Text, fontSize = if (wide) 34.sp else 28.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(6.dp))
-                    Text("Başlamak için IPTV listeni ekle.", color = Palette.TextDim, fontSize = 16.sp)
+                    Text("Başlamak için IPTV hesabını (playlist linkini) ekle.", color = Palette.TextDim, fontSize = 16.sp)
                 } else {
-                    Text("Ayarlar", color = Palette.Text, fontSize = if (wide) 34.sp else 28.sp, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Ayarlar", color = Palette.Text, fontSize = if (wide) 34.sp else 28.sp, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f))
+                        TvButton("Kapat", onClick = { vm.closeSettings() })
+                    }
                 }
 
-                // ---- Playlist ve yayın akışı ----
-                Section("Playlist ve yayın akışı")
+                // ---- Hesaplar ----
+                Section("Hesaplar")
                 Text(
-                    "Bir ya da birden çok playlist linki (m3u/m3u8) ekleyebilirsin; her listenin kategorileri ana ekranda ayrı görünür. " +
-                        "EPG linki boş kalırsa listelerdeki url-tvg linkleri kullanılır.",
+                    "Her playlist linki ayrı bir hesaptır; TV'de seçtiğin hesap görünür. Favoriler, son kanal ve EPG her hesapta ayrı tutulur.",
                     color = Palette.TextDim, fontSize = 15.sp,
                 )
                 Spacer(Modifier.height(16.dp))
@@ -141,43 +119,61 @@ fun SetupScreen(vm: AppViewModel) {
                         Text("📱", fontSize = 20.sp)
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            "Telefondan kur (karekod)",
+                            "Telefondan ekle ve yönet (karekod)",
                             color = if (focused) Palette.Accent else Palette.Text,
                             fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
                         )
                     }
                 }
-                // Ekli linkler
-                Spacer(Modifier.height(20.dp))
-                Text(
-                    if (entries.isEmpty()) "Henüz link eklenmedi." else "Ekli linkler (${entries.size})",
-                    color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(Modifier.height(10.dp))
-                entries.forEachIndexed { i, (name, url) ->
+                Spacer(Modifier.height(18.dp))
+                vm.sources.forEach { a ->
+                    val isActive = a.id == vm.activeId
                     Row(
                         Modifier.fillMaxWidth().padding(bottom = 8.dp)
                             .background(Palette.Surface, RoundedCornerShape(12.dp))
-                            .padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+                            .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        Box(Modifier.size(36.dp).background(parseHex(a.color), RoundedCornerShape(9.dp)))
+                        Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(name.ifBlank { "Liste ${i + 1}" }, color = Palette.Text, fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(url, color = Palette.TextDim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                (if (a.locked && vm.hasPin) "🔒 " else "") + a.name,
+                                color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                when {
+                                    a.error.isNotEmpty() -> "Bağlanamadı: ${a.error}"
+                                    isActive -> "Açık · ${if (a.count > 0) "${a.count} kanal" else "yükleniyor"}"
+                                    a.count > 0 -> "${a.count} kanal"
+                                    else -> a.url
+                                },
+                                color = when {
+                                    a.error.isNotEmpty() -> Palette.Danger
+                                    isActive -> Palette.Accent
+                                    else -> Palette.TextDim
+                                },
+                                fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
                         }
                         Spacer(Modifier.width(8.dp))
-                        TvButton("Sil", onClick = { entries.removeAt(i); error = null })
+                        if (!isActive) TvButton("Aç", onClick = { vm.openAccount(a.id) })
+                        TvButton(if (a.locked && vm.hasPin) "Kilidi aç" else "Kilitle", onClick = { vm.toggleAccountLock(a.id) })
+                        TvButton("Sil", onClick = { vm.deleteAccount(a.id) })
                     }
                 }
+                if (vm.sources.isNotEmpty()) {
+                    TvButton("Bağlantıları kontrol et", onClick = { vm.checkAll(force = true) })
+                }
 
-                Spacer(Modifier.height(10.dp))
-                Text("Elle link ekle:", color = Palette.TextDim, fontSize = 15.sp)
+                Spacer(Modifier.height(16.dp))
+                Text("Elle hesap ekle:", color = Palette.TextDim, fontSize = 15.sp)
                 Spacer(Modifier.height(10.dp))
                 OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
-                    label = { Text("Ad (isteğe bağlı, ör. Spor)") },
+                    label = { Text("Hesap adı (isteğe bağlı)") },
                     singleLine = true,
                     colors = fieldColors,
                     shape = RoundedCornerShape(12.dp),
@@ -194,36 +190,64 @@ fun SetupScreen(vm: AppViewModel) {
                     singleLine = true,
                     colors = fieldColors,
                     shape = RoundedCornerShape(12.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { addNew() }),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(10.dp))
-                TvButton("＋ Listeye ekle", onClick = { addNew() })
-
-                Spacer(Modifier.height(18.dp))
                 OutlinedTextField(
-                    value = epg,
-                    onValueChange = { epg = it; error = null },
-                    label = { Text("EPG linki (xml, xml.gz) — isteğe bağlı") },
-                    placeholder = { Text("Birden çok link için virgülle ayır") },
+                    value = newEpg,
+                    onValueChange = { newEpg = it },
+                    label = { Text("EPG linki (isteğe bağlı)") },
+                    placeholder = { Text("Boş kalırsa listedeki url-tvg kullanılır") },
                     singleLine = true,
                     colors = fieldColors,
                     shape = RoundedCornerShape(12.dp),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { focusManager.moveFocus(FocusDirection.Down) }),
+                    keyboardActions = KeyboardActions(onDone = { addNew() }),
                     modifier = Modifier.fillMaxWidth(),
                 )
-
                 (error ?: vm.loadError)?.let {
                     Spacer(Modifier.height(12.dp))
                     Text(it, color = Palette.Danger, fontSize = 14.sp)
                 }
+                Spacer(Modifier.height(12.dp))
+                TvButton("＋ Ekle ve aç", primary = true, onClick = { addNew() })
 
-                Spacer(Modifier.height(18.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TvButton("Kaydet ve yükle", primary = true, onClick = { save() })
-                    if (vm.setupFromSettings) TvButton("Vazgeç", onClick = { vm.closeSettings() })
+                // ---- Ebeveyn kilidi ----
+                Section("Ebeveyn kilidi")
+                Text(
+                    "4 haneli bir PIN ile hesapları ve kategorileri kilitleyebilirsin. Kilit, uygulama arka plana gidince yeniden devreye girer.",
+                    color = Palette.TextDim, fontSize = 15.sp,
+                )
+                Spacer(Modifier.height(14.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    if (!vm.hasPin) {
+                        TvButton("PIN belirle", primary = true, onClick = { vm.createPin() })
+                    } else {
+                        TvButton("PIN'i değiştir", onClick = { vm.changePin() })
+                        TvButton("PIN'i kaldır", onClick = { vm.removePin() })
+                    }
+                }
+                val lockable = vm.groups.filter { it.id.startsWith("grp:") }
+                if (vm.hasPin && lockable.isNotEmpty()) {
+                    Spacer(Modifier.height(18.dp))
+                    Text(
+                        "Kilitli kategoriler (${vm.activeSource?.name ?: ""}): seçili olanlar PIN sorar ve \"Tüm kanallar\"da gizlenir.",
+                        color = Palette.TextDim, fontSize = 15.sp,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        lockable.forEach { g ->
+                            Chip((if (g.locked) "🔒 " else "") + g.label, selected = g.locked) { vm.toggleGroupLock(g.id) }
+                        }
+                    }
                 }
 
                 // ---- Görünüm ----

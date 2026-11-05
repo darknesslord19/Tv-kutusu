@@ -12,7 +12,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
+import com.tvkutu.app.ui.AccountsScreen
 import com.tvkutu.app.ui.HomeScreen
+import com.tvkutu.app.ui.PinDialog
 import com.tvkutu.app.ui.Palette
 import com.tvkutu.app.ui.PlayerScreen
 import com.tvkutu.app.ui.QrSetupScreen
@@ -57,11 +59,24 @@ class MainActivity : ComponentActivity() {
                     when (vm.screen) {
                         Screen.Setup -> SetupScreen(vm)
                         Screen.QrSetup -> QrSetupScreen(vm)
+                        Screen.Accounts -> AccountsScreen(vm)
                         Screen.Home -> HomeScreen(vm)
                         Screen.Player -> PlayerScreen(vm)
                     }
+                    vm.pinRequest?.let { req -> PinDialog(req, onCancel = { vm.cancelPin() }) }
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        vm.startRemote()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Ebeveyn kilidi: uygulamadan çıkınca PIN yeniden sorulsun.
+        if (!isChangingConfigurations) vm.lockSession()
     }
 }

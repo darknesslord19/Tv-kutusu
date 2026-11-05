@@ -10,10 +10,14 @@ Kumandayla kullanılan, sade ve hızlı bir IPTV oynatıcı. Kendi m3u/m3u8 list
 
 Her `main` dalına gönderilen değişiklikte GitHub Actions APK'yı otomatik derler ve yeni bir sürüm (Release) olarak yayınlar.
 
-## Özellikler (v0.5)
+## Özellikler (v0.6)
 
 - **Kumanda için tasarlandı:** her ekran ok tuşları, OK ve Geri ile çalışır.
-- **Birden çok liste:** istediğin kadar m3u/m3u8 linki ekle (en fazla 20). Her listenin kategorileri ana ekranda o listenin başlığı altında ayrı görünür; bir liste açılmazsa diğerleri çalışmaya devam eder.
+- **Hesaplar:** her playlist linki ayrı bir hesap (renkli kutucuk). TV son açılan hesapla başlar; üst çubuktaki hesap adına basınca "Hesap Seç" ekranı açılır. Favoriler, son kanal ve EPG her hesapta ayrı.
+- **Hesap durumu:** kutucukta kanal sayısı ya da kırmızı "Bağlanamadı" (abonelik bitmiş, sunucu kapalı).
+- **Ebeveyn kilidi:** 4 haneli PIN ile hesap ve kategori kilitleme; uygulama arka plana gidince kilit yeniden devreye girer.
+- **Telefon kumandası:** TV'deki karekodu okut; telefonda Hesap Seç (seç, ekle, düzenle, sil), kanal arama ("TV'de aç") ve yedek. Adres kalıcıdır, yer imlerine eklenebilir.
+- **Yedek ve taşıma:** telefondan yedeği indir (.json), yeni TV'nin karekodunu okutup yedeği yükle (ekle ya da hepsini değiştir).
 - **Afiş kartları:** film ve dizi kategorilerinde afiş kartı tamamen doldurur (otomatik algılama, ya da hep afiş / hep logo). Ad afişin üstünde ya da altında. TV'de solda kategoriler, sağda afiş ızgarası; kumandanın üzerindeki afiş büyür ve adını gösterir.
 - **Kategori satırları:** "Tüm kanallar" seçiliyken her kategori yatay kayan bir satır olarak listelenir ("Tümü" ile kategoriye geçilir).
 - **Kanal ızgarası:** logo, şu anki program ve ilerleme çubuğu; kategoriler listedeki sırayla.
@@ -23,7 +27,6 @@ Her `main` dalına gönderilen değişiklikte GitHub Actions APK'yı otomatik de
 - **Oynatıcı:** dahili Media3 ExoPlayer (HLS ve MPEG-TS) ya da harici uygulama (VLC, MX Player…). Yayın biçimi Otomatik / HLS / MPEG-TS seçilebilir. Kopmada otomatik yeniden bağlanma (5 deneme), donanım çözücü sorununda yedek çözücü, anlaşılır hata mesajları.
 - **Dokunmatik kontroller:** telefonda videoya dokununca oynat/duraklat, önceki/sonraki, kanallar, yayın akışı ve favori butonları çıkar; panelde çözünürlük ve codec görünür.
 - **Kanal başına başlıklar:** `#EXTVLCOPT:http-user-agent`, `http-referrer` ve `url|User-Agent=…&Referer=…` biçimi.
-- **Telefondan kurulum (karekod):** TV ekranındaki karekodu telefonla okut, açılan sayfaya bir ya da birden çok linki yapıştır (toplu yapıştırma da var), "Gönder"e dokun. Sayfa yalnızca ev ağında çalışır, tek kullanımlık kodla korunur ve gönderimden sonra kapanır.
 - **Otomatik güncelleme:** liste ve yayın akışı 6, 12 veya 24 saatte bir yenilenir (ya da kapalı).
 - TV, telefon ve tablette çalışır; telefonda dikey düzen desteklenir.
 - Hesap, reklam, analitik yok. Linkler yalnızca cihazda saklanır.
@@ -59,7 +62,9 @@ app/src/main/java/com/tvkutu/app/
   data/M3uParser.kt      m3u/m3u8 ayrıştırıcı
   data/XmltvParser.kt    XMLTV (xml/gz/zip) akış ayrıştırıcı
   data/Repository.kt     indirme, önbellek, ayarlar, favoriler
-  data/SetupServer.kt    telefondan kurulum için yerel ağ sunucusu
+  data/RemoteServer.kt   telefon kumandası için yerel ağ sunucusu
+  data/RemoteApi.kt      kumanda API'si (PIN kuralları, yedek)
+  assets/remote.html     telefon sayfası
   ui/                    Ayarlar, Karekod kurulumu, Ana ekran, Oynatıcı
 ```
 
