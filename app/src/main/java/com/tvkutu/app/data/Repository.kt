@@ -138,6 +138,39 @@ class Repository(context: Context) {
         return set
     }
 
+    // ---- İzleme ilerlemesi (hesap başına) ----
+    fun progress(accountId: String): Map<String, WatchProgress> = runCatching {
+        val o = JSONObject(prefs.getString("progress_$accountId", "{}") ?: "{}")
+        o.keys().asSequence().associateWith { k ->
+            val p = o.getJSONObject(k)
+            WatchProgress(p.optLong("p"), p.optLong("d"), p.optLong("t"))
+        }
+    }.getOrDefault(emptyMap())
+
+    /** Kaydeder ya da (bitmişse/çok kısaysa) siler; güncel haritayı döndürür. */
+    fun saveProgress(accountId: String, key: String, posMs: Long, durMs: Long): Map<String, WatchProgress> {
+        val map = progress(accountId).toMutableMap()
+        if (WatchProgress.shouldKeep(posMs, durMs)) {
+            map[key] = WatchProgress(posMs, durMs, System.currentTimeMillis())
+        } else if (WatchProgress.isFinished(posMs, durMs)) {
+            map.remove(key)
+        } else {
+            return map
+        }
+        return writeProgress(accountId, map)
+    }
+
+    fun removeProgress(accountId: String, key: String): Map<String, WatchProgress> =
+        writeProgress(accountId, progress(accountId) - key)
+
+    private fun writeProgress(accountId: String, map: Map<String, WatchProgress>): Map<String, WatchProgress> {
+        val trimmed = map.entries.sortedByDescending { it.value.updatedMs }.take(WatchProgress.MAX_ITEMS)
+        val o = JSONObject()
+        trimmed.forEach { (k, v) -> o.put(k, JSONObject().put("p", v.posMs).put("d", v.durMs).put("t", v.updatedMs)) }
+        prefs.edit().putString("progress_$accountId", o.toString()).apply()
+        return trimmed.associate { it.key to it.value }
+    }
+
     // ---- Ebeveyn kilidi ----
     val hasPin get() = prefs.contains("pin_hash")
 

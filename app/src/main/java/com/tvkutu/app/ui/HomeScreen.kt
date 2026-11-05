@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tvkutu.app.AppViewModel
 import com.tvkutu.app.data.Channel
+import com.tvkutu.app.data.WatchProgress
 import kotlinx.coroutines.delay
 
 @Composable
@@ -254,6 +255,7 @@ private fun CategoryRows(vm: AppViewModel, narrow: Boolean, modifier: Modifier) 
                             PosterCard(
                                 vm, ch, tv = !narrow, titleBelow = vm.posterTitle == "below", inRow = true,
                                 modifier = Modifier.width(if (narrow) 108.dp else 150.dp),
+                                continueMode = g.id == AppViewModel.CONTINUE,
                             )
                         } else {
                             LogoCard(vm, ch, Modifier.width(if (narrow) 150.dp else 200.dp))
@@ -308,7 +310,10 @@ private fun ChannelGrid(vm: AppViewModel, narrow: Boolean, modifier: Modifier) {
         itemsIndexed(channels, key = { _, c -> c.key }) { _, ch ->
             val m = if (ch.key == lastKey) Modifier.focusRequester(returnFocus) else Modifier
             if (poster) {
-                PosterCard(vm, ch, tv = !narrow, titleBelow = vm.posterTitle == "below", inRow = false, modifier = m)
+                PosterCard(
+                    vm, ch, tv = !narrow, titleBelow = vm.posterTitle == "below", inRow = false, modifier = m,
+                    continueMode = vm.selectedGroup == AppViewModel.CONTINUE,
+                )
             } else {
                 LogoCard(vm, ch, m)
             }
@@ -328,6 +333,7 @@ private fun PosterCard(
     titleBelow: Boolean,
     inRow: Boolean,
     modifier: Modifier,
+    continueMode: Boolean = false,
 ) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) (if (tv) 1.08f else 1.04f) else 1f, label = "poster")
@@ -348,6 +354,13 @@ private fun PosterCard(
                 .clip(shape),
         ) {
             PosterArt(image, ch.name, Modifier.fillMaxSize(), onAspect = { r -> image?.let { vm.reportAspect(it, r) } })
+            val prog = vm.progressOf(ch)
+            if (prog != null && continueMode) {
+                Box(
+                    Modifier.align(Alignment.Center).size(if (tv) 48.dp else 38.dp).background(Color(0x8C000000), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) { Text("▶", color = Color.White, fontSize = if (tv) 18.sp else 15.sp) }
+            }
             if (ch.key in vm.favorites) {
                 Box(
                     Modifier.align(Alignment.TopEnd).padding(6.dp).size(22.dp)
@@ -355,7 +368,8 @@ private fun PosterCard(
                     contentAlignment = Alignment.Center,
                 ) { Text("★", color = Palette.Fav, fontSize = 12.sp) }
             }
-            if (showOverlay) {
+            if (prog != null) ProgressStrip(prog.fraction, Modifier.align(Alignment.BottomCenter))
+            if (showOverlay && !continueMode) {
                 Column(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                         .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF2080A0D))))
@@ -371,7 +385,16 @@ private fun PosterCard(
                 }
             }
         }
-        if (titleBelow) {
+        if (continueMode) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                ch.name, color = Palette.Text, fontSize = if (tv) 14.sp else 12.sp, fontWeight = FontWeight.Bold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            vm.progressOf(ch)?.let {
+                Text(WatchProgress.remainingText(it.remainingMs), color = Palette.TextDim, fontSize = 12.sp, maxLines = 1)
+            }
+        } else if (titleBelow) {
             Spacer(Modifier.height(6.dp))
             Text(
                 ch.name, color = if (focused) Palette.Text else Palette.Text.copy(alpha = 0.9f),
@@ -392,6 +415,7 @@ private fun LogoCard(vm: AppViewModel, ch: Channel, modifier: Modifier) {
         Column(Modifier.padding(10.dp)) {
             Box(Modifier.fillMaxWidth().height(84.dp)) {
                 ChannelLogo(logo, ch.name, Modifier.fillMaxSize(), onAspect = { r -> logo?.let { vm.reportAspect(it, r) } })
+                vm.progressOf(ch)?.let { ProgressStrip(it.fraction, Modifier.align(Alignment.BottomCenter)) }
                 if (ch.key in vm.favorites) {
                     Text("★", color = Palette.Fav, fontSize = 16.sp,
                         modifier = Modifier.align(Alignment.TopEnd).padding(6.dp))

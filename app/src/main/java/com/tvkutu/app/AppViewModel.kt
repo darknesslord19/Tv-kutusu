@@ -19,6 +19,7 @@ import com.tvkutu.app.data.RemoteOps
 import com.tvkutu.app.data.RemoteServer
 import com.tvkutu.app.data.Repository
 import com.tvkutu.app.data.Source
+import com.tvkutu.app.data.WatchProgress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -30,6 +31,9 @@ enum class Screen { Setup, QrSetup, Accounts, Home, Player }
 
 /** Kenar çubuğundaki bir satır: tüm kanallar, favoriler ya da kategori. */
 data class GroupItem(val id: String, val label: String, val count: Int, val isSource: Boolean = false, val locked: Boolean = false)
+
+/** "Kaldığın yerden devam et?" penceresi isteği. */
+data class ResumeRequest(val channel: Channel, val progress: WatchProgress)
 
 /** TV'de PIN penceresi isteği. [create]: yeni PIN belirleme (iki kez sorulur). */
 data class PinRequest(val title: String, val subtitle: String, val create: Boolean = false, val onPin: (String) -> Unit)
@@ -67,6 +71,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var favorites by mutableStateOf(repo.favorites())
         private set
+    /** Aktif hesabın yarıda kalanları (kanal anahtarı → ilerleme). */
+    var progress by mutableStateOf<Map<String, WatchProgress>>(emptyMap())
+        private set
+    var resumeRequest by mutableStateOf<ResumeRequest?>(null)
+        private set
+    /** Oynatıcının başlayacağı konum (ms); oynatıcı bir kez okur. */
+    private var pendingStartMs = 0L
 
     var loading by mutableStateOf(false)
         private set
@@ -170,14 +181,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val groups: List<GroupItem>
         get() {
             if (playlist == null) return emptyList()
-            val list = ArrayList<GroupItem>(baseGroups.size + 1)
+            val list = ArrayList<GroupItem>(baseGroups.size + 2)
+            val cont = channelsIn(CONTINUE).size
+            if (cont > 0) list += GroupItem(CONTINUE, CONTINUE, cont)
             if (favorites.any { it in channelByKey }) list += GroupItem(FAVORITES, FAVORITES, channelsIn(FAVORITES).size)
             baseGroups.forEach { g -> list += if (g.id in lockedGroups) g.copy(locked = true) else g }
             return list
         }
 
     fun groupLabel(id: String): String = when (id) {
-        ALL, FAVORITES -> id
+        ALL, FAVORITES, CONTINUE -> if (id == CONTINUE) "İzlemeye devam et" else id
         else -> groupLabels[id] ?: ALL
     }
 
@@ -186,6 +199,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         return when (group) {
             ALL -> pl.channels
             FAVORITES -> pl.channels.filter { it.key in favorites }
+            CONTINUE -> progress.entries.sortedByDescending { it.value.updatedMs }
+                .mapNotNull { channelByKey[it.key] }.filterNot { isChannelBlocked(it) }
             else -> groupIndex[group].orEmpty()
         }
     }
@@ -238,7 +253,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** "Tüm kanallar" seçiliyken satır satır gösterilecek kategoriler (kilitliler gizli). */
     fun rowGroups(selected: String): List<GroupItem> =
         if (selected != ALL) emptyList()
-        else groups.filter { (it.id == FAVORITES || it.id.startsWith("grp:")) && !isGroupBlocked(it.id) }
+        else groups.filter { (it.id == CONTINUE || it.id == FAVORITES || it.id.startsWith("grp:")) && !isGroupBlocked(it.id) }
 
     fun showsRows(selected: String) = selected == ALL
 
@@ -270,12 +285,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         groupLabels = labels
         baseGroups = items
         channelByKey = pl.channels.associateBy { it.key }
-        if (selectedGroup != ALL && selectedGroup != FAVORITES && selectedGroup !in index) selectedGroup = ALL
+        if (selectedGroup != ALL && selectedGroup != FAVORITES && selectedGroup != CONTINUE && selectedGroup !in index) selectedGroup = ALL
     }
 
     // ---- Yükleme (yalnızca aktif hesap) ----
     private fun start() {
         val src = activeSource ?: return
+        progress = repo.progress(src.id)
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             loading = true
@@ -354,6 +370,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             loadError = null
             selectedGroup = ALL
             message = null
+            resumeRequest = null
             start()
         }
     }
@@ -564,6 +581,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             requestPin("Kategori kilitli", channel.group) { play(channel) }
             return
         }
+        val saved = progress[channel.key]
+        if (saved != null && playerMode != PLAYER_EXTERNAL) {
+            resumeRequest = ResumeRequest(channel, saved)
+            return
+        }
+        startPlayback(channel, 0L)
+    }
+
+    /** Oynatmayı başlatır; [startMs] > 0 ise o konumdan. */
+    fun startPlayback(channel: Channel, startMs: Long) {
+        resumeRequest = null
+        pendingStartMs = startMs
         currentChannel = channel
         activeId?.let { repo.setLastChannel(it, channel.key) }
         if (playerMode == PLAYER_EXTERNAL) {
@@ -571,6 +600,30 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         } else {
             screen = Screen.Player
         }
+    }
+
+    fun resumeFromSaved() { resumeRequest?.let { startPlayback(it.channel, it.progress.posMs) } }
+    fun restartFromBeginning() { resumeRequest?.let { startPlayback(it.channel, 0L) } }
+    fun dismissResume() { resumeRequest = null }
+
+    fun removeFromContinue(channel: Channel) {
+        val id = activeId ?: return
+        progress = repo.removeProgress(id, channel.key)
+        if (resumeRequest?.channel?.key == channel.key) resumeRequest = null
+        if (selectedGroup == CONTINUE && progress.isEmpty()) selectedGroup = ALL
+    }
+
+    /** Oynatıcı bir kez çağırır: başlangıç konumu (ms). */
+    fun takeStartPosition(): Long = pendingStartMs.also { pendingStartMs = 0L }
+
+    fun progressOf(ch: Channel): WatchProgress? = progress[ch.key]
+
+    /** Oynatıcıdan: film/dizi konumunu kaydet (canlı yayınlar için çağrılmaz). */
+    fun updateProgress(ch: Channel, posMs: Long, durMs: Long) {
+        val id = activeId ?: return
+        if (ch.sourceId != id) return
+        if (!WatchProgress.shouldKeep(posMs, durMs) && !WatchProgress.isFinished(posMs, durMs)) return
+        progress = repo.saveProgress(id, ch.key, posMs, durMs)
     }
 
     /** Kanalı cihazdaki başka bir oynatıcıda (VLC, MX Player…) açar. */
@@ -608,6 +661,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun switchTo(channel: Channel) {
         if (isChannelBlocked(channel)) return
+        pendingStartMs = progress[channel.key]?.posMs ?: 0L
         currentChannel = channel
         activeId?.let { repo.setLastChannel(it, channel.key) }
     }
@@ -676,10 +730,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         override fun play(key: String) {
             val ch = channelByKey[key] ?: return
             pinRequest = null
-            currentChannel = ch
             if (selectedGroup != FAVORITES || ch.key !in favorites) selectedGroup = groupIdOf(ch)
-            activeId?.let { repo.setLastChannel(it, ch.key) }
-            if (playerMode == PLAYER_EXTERNAL) openExternal(ch) else screen = Screen.Player
+            startPlayback(ch, progress[ch.key]?.posMs ?: 0L)
         }
 
         override fun settingsForBackup(): Map<String, Any?> = mapOf(
@@ -709,6 +761,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     companion object {
         const val ALL = "Tüm kanallar"
         const val FAVORITES = "★ Favoriler"
+        const val CONTINUE = "▶ Devam et"
         const val PLAYER_INTERNAL = "internal"
         const val PLAYER_EXTERNAL = "external"
         private val VOD_URL = Regex("""(?i)(/movies?/|/series/|/vod/|\.(mp4|mkv|avi|m4v|mov|webm)(\?|$))""")

@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import com.tvkutu.app.ui.AccountsScreen
 import com.tvkutu.app.ui.HomeScreen
 import com.tvkutu.app.ui.PinDialog
+import com.tvkutu.app.ui.ResumeDialog
 import com.tvkutu.app.ui.Palette
 import com.tvkutu.app.ui.PlayerScreen
 import com.tvkutu.app.ui.QrSetupScreen
@@ -63,6 +64,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Home -> HomeScreen(vm)
                         Screen.Player -> PlayerScreen(vm)
                     }
+                    vm.resumeRequest?.let { req -> ResumeDialog(vm, req) }
                     vm.pinRequest?.let { req -> PinDialog(req, onCancel = { vm.cancelPin() }) }
                 }
             }

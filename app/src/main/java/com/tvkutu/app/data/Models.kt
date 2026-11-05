@@ -100,3 +100,44 @@ class EpgIndex(
         }
     }
 }
+
+/** Yarıda kalan film/dizi: kaldığı yer, toplam süre (ms) ve son izlenme zamanı. */
+data class WatchProgress(val posMs: Long, val durMs: Long, val updatedMs: Long) {
+    val fraction: Float get() = if (durMs <= 0) 0f else (posMs.toFloat() / durMs).coerceIn(0f, 1f)
+    val remainingMs: Long get() = (durMs - posMs).coerceAtLeast(0)
+
+    companion object {
+        /** Bundan kısa izlenenler listeye girmez. */
+        const val MIN_WATCHED_MS = 60_000L
+        const val MAX_ITEMS = 60
+
+        /** Sonuna bu kadar kala (ya da %95'ten sonra) "bitti" sayılır ve listeden çıkar. */
+        fun isFinished(posMs: Long, durMs: Long): Boolean =
+            durMs > 0 && (durMs - posMs <= maxOf(120_000L, durMs / 20))
+
+        /** Kaydedilmeye değer mi: biraz izlenmiş ve bitmemiş. */
+        fun shouldKeep(posMs: Long, durMs: Long): Boolean =
+            durMs > 0 && posMs >= MIN_WATCHED_MS && !isFinished(posMs, durMs)
+
+        /** "18 dk kaldı", "1 sa 4 dk kaldı". */
+        fun remainingText(ms: Long): String {
+            val totalMin = ((ms + 59_999) / 60_000).coerceAtLeast(1)
+            val h = totalMin / 60
+            val m = totalMin % 60
+            return when {
+                h == 0L -> "$m dk kaldı"
+                m == 0L -> "$h sa kaldı"
+                else -> "$h sa $m dk kaldı"
+            }
+        }
+
+        /** 4350000 → "1:12:30", 95000 → "1:35". */
+        fun clock(ms: Long): String {
+            val s = (ms.coerceAtLeast(0) / 1000)
+            val h = s / 3600
+            val m = (s % 3600) / 60
+            val x = s % 60
+            return if (h > 0) "%d:%02d:%02d".format(h, m, x) else "%d:%02d".format(m, x)
+        }
+    }
+}

@@ -10,7 +10,7 @@ Kumandayla kullanılan, sade ve hızlı bir IPTV oynatıcı. Kendi m3u/m3u8 list
 
 Her `main` dalına gönderilen değişiklikte GitHub Actions APK'yı otomatik derler ve yeni bir sürüm (Release) olarak yayınlar.
 
-## Özellikler (v0.6)
+## Özellikler (v0.7)
 
 - **Kumanda için tasarlandı:** her ekran ok tuşları, OK ve Geri ile çalışır.
 - **Hesaplar:** her playlist linki ayrı bir hesap (renkli kutucuk). TV son açılan hesapla başlar; üst çubuktaki hesap adına basınca "Hesap Seç" ekranı açılır. Favoriler, son kanal ve EPG her hesapta ayrı.
@@ -24,6 +24,8 @@ Her `main` dalına gönderilen değişiklikte GitHub Actions APK'yı otomatik de
 - **Kanal logoları:** `tvg-logo` / `logo` (göreli yollar da), yoksa EPG'deki kanal ikonu; PNG, JPG, WebP ve SVG. Logo yoksa kanal adının baş harfleri görünür.
 - **Favoriler:** oynatıcıda OK → "Favorilere ekle". Favoriler kategorisi en üstte görünür.
 - **Yayın akışı (EPG):** XMLTV (`xml`, `xml.gz`, `zip`) ya da listedeki `url-tvg` linki. Kanallar `tvg-id` veya isimle eşleştirilir.
+- **Kaldığın yerden izle:** yarıda kalan film/diziler "▶ Devam et" kategorisinde ve "Tüm kanallar"ın en üstünde, ilerleme çubuğu ve "18 dk kaldı" ile. Açınca "Kaldığın yerden devam et / Baştan başla / Listeden kaldır" sorulur (10 sn sonra kendiliğinden devam eder). Her hesapta ayrı tutulur.
+- **Sarma çubuğu:** film/dizide süre çubuğu, geçen/toplam süre ve bitiş saati; ◀ ▶ ile 10 sn (basılı tutunca 30–60 sn), telefonda çubuğa dokun/sürükle ya da çift dokun. Canlı yayında çubuk programın ilerlemesini gösterir. Ses ve altyazı parçası seçimi.
 - **Oynatıcı:** dahili Media3 ExoPlayer (HLS ve MPEG-TS) ya da harici uygulama (VLC, MX Player…). Yayın biçimi Otomatik / HLS / MPEG-TS seçilebilir. Kopmada otomatik yeniden bağlanma (5 deneme), donanım çözücü sorununda yedek çözücü, anlaşılır hata mesajları.
 - **Dokunmatik kontroller:** telefonda videoya dokununca oynat/duraklat, önceki/sonraki, kanallar, yayın akışı ve favori butonları çıkar; panelde çözünürlük ve codec görünür.
 - **Kanal başına başlıklar:** `#EXTVLCOPT:http-user-agent`, `http-referrer` ve `url|User-Agent=…&Referer=…` biçimi.
