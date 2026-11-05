@@ -14,11 +14,15 @@ import com.tvkutu.app.data.Channel
 import com.tvkutu.app.data.EpgIndex
 import com.tvkutu.app.data.Playlist
 import com.tvkutu.app.data.Repository
+import com.tvkutu.app.data.Source
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 enum class Screen { Setup, QrSetup, Home, Player }
+
+/** Kenar çubuğundaki bir satır: tüm kanallar, favoriler, kaynak başlığı ya da kategori. */
+data class GroupItem(val id: String, val label: String, val count: Int, val isSource: Boolean = false)
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -32,6 +36,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     var playlist by mutableStateOf<Playlist?>(null)
         private set
+    var sources by mutableStateOf(repo.sources)
+        private set
+
+    /** Kategori kimliği → kanallar (liste değişince bir kez hesaplanır). */
+    private var groupIndex: Map<String, List<Channel>> = emptyMap()
+    private var groupLabels: Map<String, String> = emptyMap()
+    private var baseGroups: List<GroupItem> = emptyList()
     var epg by mutableStateOf(EpgIndex.EMPTY)
         private set
     var favorites by mutableStateOf(repo.favorites())
@@ -81,23 +92,68 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---- Gruplar ----
-    val groups: List<String>
+    val groups: List<GroupItem>
         get() {
-            val pl = playlist ?: return emptyList()
-            val list = ArrayList<String>()
-            if (favorites.isNotEmpty()) list += FAVORITES
-            list += ALL
-            pl.channels.mapTo(LinkedHashSet()) { it.group }.forEach { list += it }
+            if (playlist == null) return emptyList()
+            val fav = favorites
+            val list = ArrayList<GroupItem>(baseGroups.size + 1)
+            if (fav.isNotEmpty()) list += GroupItem(FAVORITES, FAVORITES, channelsIn(FAVORITES).size)
+            list += baseGroups
             return list
         }
+
+    fun groupLabel(id: String): String = when (id) {
+        ALL, FAVORITES -> id
+        else -> groupLabels[id] ?: ALL
+    }
 
     fun channelsIn(group: String): List<Channel> {
         val pl = playlist ?: return emptyList()
         return when (group) {
             ALL -> pl.channels
             FAVORITES -> pl.channels.filter { it.key in favorites }
-            else -> pl.channels.filter { it.group == group }
+            else -> groupIndex[group].orEmpty()
         }
+    }
+
+    /** Kanal logosu: listedeki tvg-logo, yoksa EPG'deki ikon. */
+    fun logoOf(ch: Channel): String? = ch.logo ?: epg.logo(ch)
+
+    private fun applyPlaylist(pl: Playlist?) {
+        playlist = pl
+        if (pl == null) {
+            groupIndex = emptyMap(); groupLabels = emptyMap(); baseGroups = emptyList()
+            return
+        }
+        val multi = sources.size > 1
+        val index = LinkedHashMap<String, MutableList<Channel>>()
+        val labels = HashMap<String, String>()
+        val items = ArrayList<GroupItem>()
+        items += GroupItem(ALL, ALL, pl.channels.size)
+        val bySource = pl.channels.groupBy { it.sourceId }
+        val ordered = sources.map { it.id }.filter { it in bySource } + bySource.keys.filter { id -> sources.none { it.id == id } }
+        for (sid in ordered) {
+            val chans = bySource[sid].orEmpty()
+            val srcName = sources.firstOrNull { it.id == sid }?.name?.ifBlank { null } ?: "Liste"
+            if (multi) {
+                val sKey = "src:$sid"
+                index[sKey] = chans.toMutableList()
+                labels[sKey] = srcName
+                items += GroupItem(sKey, srcName, chans.size, isSource = true)
+            }
+            val groupOrder = LinkedHashMap<String, MutableList<Channel>>()
+            chans.forEach { groupOrder.getOrPut(it.group) { ArrayList() }.add(it) }
+            groupOrder.forEach { (g, list) ->
+                val gKey = "grp:$sid\u0001$g"
+                index[gKey] = list
+                labels[gKey] = if (multi) "$srcName · $g" else g
+                items += GroupItem(gKey, g, list.size)
+            }
+        }
+        groupIndex = index
+        groupLabels = labels
+        baseGroups = items
+        if (selectedGroup != ALL && selectedGroup != FAVORITES && selectedGroup !in index) selectedGroup = ALL
     }
 
     // ---- Eylemler ----
@@ -107,7 +163,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             loading = true
             val cached = runCatching { repo.loadCachedPlaylist() }.getOrNull()
             if (cached != null && cached.channels.isNotEmpty()) {
-                playlist = cached
+                applyPlaylist(cached)
                 loading = false
                 loadEpg(cached, force = false)
                 if (repo.isStale()) refresh(silent = true)
@@ -122,13 +178,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             if (!silent) loading = true
             try {
-                val pl = repo.downloadPlaylist()
-                loadError = null
-                playlist = pl
-                if (selectedGroup !in groups) selectedGroup = ALL
+                val res = repo.downloadAll()
+                val pl = res.playlist
+                applyPlaylist(pl)
+                loadError = if (res.errors.isEmpty()) null
+                    else res.errors.joinToString("\n") { "${it.first}: yüklenemedi (${it.second})" }
                 loading = false
+                if (!silent) {
+                    message = buildString {
+                        append("${sources.size - res.errors.size}/${sources.size} liste yüklendi · ${pl.channels.size} kanal")
+                        if (res.errors.isNotEmpty()) append(" · ${res.errors.joinToString { it.first }} yüklenemedi")
+                    }
+                }
                 loadEpg(pl, force = true)
-                if (!silent) message = "Liste güncellendi: ${pl.channels.size} kanal"
             } catch (e: Exception) {
                 message = "Liste yüklenemedi: ${e.message ?: e.javaClass.simpleName}"
                 loadError = message
@@ -143,10 +205,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun loadEpg(pl: Playlist, force: Boolean) {
-        if (repo.effectiveEpgUrl(pl) == null) return
+        if (repo.effectiveEpgUrls(pl).isEmpty()) return
         epgLoading = true
         try {
-            epg = repo.loadEpg(pl, force)
+            val (index, errors) = repo.loadEpg(pl, force)
+            epg = index
+            if (errors.isNotEmpty() && index.isEmpty) message = "Yayın akışı yüklenemedi: ${errors.first()}"
         } catch (e: Exception) {
             message = "Yayın akışı yüklenemedi: ${e.message ?: e.javaClass.simpleName}"
         } finally {
@@ -154,17 +218,36 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun saveSetup(playlistUrl: String, epgUrl: String) {
-        val changed = playlistUrl.trim() != repo.playlistUrl || epgUrl.trim() != repo.epgUrl
-        repo.playlistUrl = playlistUrl
+    /**
+     * Yeni kaynak listesini kaydeder. Aynı linke sahip kaynakların kimliği korunur
+     * (favoriler kaybolmasın).
+     */
+    fun saveSetup(entries: List<Pair<String, String>>, epgUrl: String) {
+        val old = repo.sources
+        val usedIds = HashSet<String>()
+        val newList = entries.mapIndexed { i, (name, url) ->
+            val u = url.trim()
+            val existing = old.firstOrNull { it.url == u && it.id !in usedIds }
+            val id = existing?.id ?: Repository.newSourceId() + i
+            usedIds += id
+            Source(id, name.trim().ifEmpty { defaultName(u, i) }, u)
+        }
+        val changed = newList != old || epgUrl.trim() != repo.epgUrl
+        repo.sources = newList
         repo.epgUrl = epgUrl
+        sources = newList
         screen = Screen.Home
         if (changed || playlist == null) {
-            playlist = null
+            applyPlaylist(null)
             epg = EpgIndex.EMPTY
             selectedGroup = ALL
             refresh(silent = false)
         }
+    }
+
+    private fun defaultName(url: String, i: Int): String {
+        val host = runCatching { Uri.parse(url).host }.getOrNull()?.removePrefix("www.")
+        return if (host.isNullOrBlank()) "Liste ${i + 1}" else host
     }
 
     fun openSettings() {
@@ -185,10 +268,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Telefondan gelen linkler. */
-    fun applyFromPhone(playlistUrl: String, epgUrl: String) {
+    fun applyFromPhone(entries: List<Pair<String, String>>, epgUrl: String) {
         message = null
-        saveSetup(playlistUrl, epgUrl)
-        message = "Linkler telefondan alındı, liste yükleniyor…"
+        saveSetup(entries, epgUrl)
+        message = "${entries.size} link telefondan alındı, yükleniyor…"
     }
 
     fun setUpdateInterval(hours: Int) {

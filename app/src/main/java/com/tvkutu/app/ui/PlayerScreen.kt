@@ -331,13 +331,12 @@ private fun InfoPanel(
             .padding(start = 24.dp, end = 24.dp, top = 48.dp, bottom = 24.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (channel.logo != null) {
-                AsyncImage(
-                    model = channel.logo, contentDescription = null, contentScale = ContentScale.Fit,
-                    modifier = Modifier.size(width = 96.dp, height = 56.dp),
-                )
-                Spacer(Modifier.width(16.dp))
-            }
+            ChannelLogo(
+                vm.logoOf(channel), channel.name,
+                Modifier.size(width = 96.dp, height = 56.dp),
+                padding = 4.dp, initialsSize = 20.sp, background = Color(0x33FFFFFF),
+            )
+            Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(channel.name, color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold,
@@ -413,7 +412,7 @@ private fun ChannelsPanel(
     Column(
         modifier.fillMaxWidth(0.9f).widthIn(max = 380.dp).fillMaxHeight().background(Color(0xE6101318)).padding(top = 24.dp)
     ) {
-        Text(vm.selectedGroup, color = Palette.Accent, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+        Text(vm.groupLabel(vm.selectedGroup), color = Palette.Accent, fontSize = 18.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(horizontal = 24.dp))
         Spacer(Modifier.height(12.dp))
         LazyColumn(
@@ -430,7 +429,12 @@ private fun ChannelsPanel(
                     modifier = Modifier.fillMaxWidth().then(if (i == idx) Modifier.focusRequester(focus) else Modifier),
                 ) {
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("${i + 1}", color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.width(36.dp))
+                        Text("${i + 1}", color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.width(32.dp))
+                        ChannelLogo(
+                            vm.logoOf(ch), ch.name, Modifier.size(width = 52.dp, height = 32.dp),
+                            padding = 2.dp, initialsSize = 12.sp,
+                        )
+                        Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(ch.name, color = Palette.Text, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (cur != null) Text(cur.title, color = Palette.TextDim, fontSize = 12.sp,

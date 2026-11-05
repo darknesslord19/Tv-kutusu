@@ -4,14 +4,21 @@ package com.tvkutu.app.data
  * Genişletilmiş M3U (#EXTM3U) ayrıştırıcı.
  * Desteklenenler: tvg-id, tvg-name, tvg-logo, group-title, #EXTGRP,
  * #EXTVLCOPT:http-user-agent / http-referrer, başlıkta url-tvg / x-tvg-url.
+ * Göreli logo yolları playlist adresine göre tam adrese çevrilir.
  */
 object M3uParser {
 
     private val attrRegex = Regex("""([A-Za-z0-9_-]+)\s*=\s*"([^"]*)"""")
 
-    fun parse(text: String, defaultGroup: String = "Diğer"): Playlist {
+    fun parse(
+        text: String,
+        defaultGroup: String = "Diğer",
+        sourceId: String = "",
+        baseUrl: String? = null,
+    ): Playlist {
         val channels = ArrayList<Channel>()
-        var epgUrl: String? = null
+        val epgUrls = ArrayList<String>()
+        val keyPrefix = if (sourceId.isEmpty()) "" else "$sourceId/"
 
         var pendingName: String? = null
         var pendingAttrs: Map<String, String> = emptyMap()
@@ -30,8 +37,9 @@ object M3uParser {
                     val attrs = parseAttrs(line)
                     val tvg = attrs["url-tvg"] ?: attrs["x-tvg-url"] ?: attrs["tvg-url"]
                     if (!tvg.isNullOrBlank()) {
-                        // Birden çok link virgülle ayrılmış olabilir; ilkini al.
-                        epgUrl = tvg.split(',').map { it.trim() }.firstOrNull { it.isNotEmpty() }
+                        // Birden çok link virgülle ayrılmış olabilir.
+                        tvg.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+                            .forEach { if (it !in epgUrls) epgUrls += it }
                     }
                 }
 
@@ -83,23 +91,24 @@ object M3uParser {
                         ?: pendingGroup ?: defaultGroup
                     val tvgId = attrs["tvg-id"]?.ifBlank { null }
 
-                    var key = tvgId?.let { "id:$it" } ?: "n:$name|$url"
+                    var key = keyPrefix + (tvgId?.let { "id:$it" } ?: "n:$name|$url")
                     if (!usedKeys.add(key)) {
-                        key = "n:$name|$url"
+                        key = "${keyPrefix}n:$name|$url"
                         var n = 2
-                        while (!usedKeys.add(key)) key = "n:$name|$url#${n++}"
+                        while (!usedKeys.add(key)) key = "${keyPrefix}n:$name|$url#${n++}"
                     }
 
                     channels += Channel(
                         key = key,
                         name = name,
                         url = url,
-                        logo = attrs["tvg-logo"]?.ifBlank { null },
+                        logo = resolveLogo(attrs["tvg-logo"] ?: attrs["logo"] ?: attrs["tvg-logo-small"], baseUrl),
                         group = group,
                         tvgId = tvgId,
                         tvgName = tvgName,
                         userAgent = ua,
                         referrer = ref,
+                        sourceId = sourceId,
                     )
 
                     pendingName = null
@@ -110,7 +119,18 @@ object M3uParser {
                 }
             }
         }
-        return Playlist(channels, epgUrl)
+        return Playlist(channels, epgUrls)
+    }
+
+    /** Logo adresini temizler; göreli yolları playlist adresine göre tamamlar. */
+    internal fun resolveLogo(raw: String?, baseUrl: String?): String? {
+        val v = raw?.trim()?.replace(" ", "%20")
+        if (v.isNullOrEmpty()) return null
+        if (v.startsWith("http://", true) || v.startsWith("https://", true) || v.startsWith("data:", true)) return v
+        if (v.startsWith("//")) return "https:$v"
+        if (baseUrl.isNullOrBlank()) return null
+        return runCatching { java.net.URI(baseUrl.trim()).resolve(v).toString() }.getOrNull()
+            ?.takeIf { it.startsWith("http", true) }
     }
 
     private fun parseAttrs(s: String): Map<String, String> =

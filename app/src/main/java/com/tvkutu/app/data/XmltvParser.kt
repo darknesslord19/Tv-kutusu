@@ -31,6 +31,7 @@ object XmltvParser {
 
         val resolved = HashMap<String, List<String>>() // xmltv kanal id -> kanal anahtarları
         val result = HashMap<String, MutableList<Programme>>()
+        val logos = HashMap<String, String>()
 
         val parser = Xml.newPullParser()
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
@@ -38,6 +39,7 @@ object XmltvParser {
 
         var curChannelId: String? = null
         val curNames = ArrayList<String>()
+        var curIcon: String? = null
 
         var progChannel: String? = null
         var progStart = 0L
@@ -53,6 +55,10 @@ object XmltvParser {
                     "channel" -> {
                         curChannelId = parser.getAttributeValue(null, "id")
                         curNames.clear()
+                        curIcon = null
+                    }
+                    "icon" -> if (curChannelId != null && curIcon == null) {
+                        curIcon = parser.getAttributeValue(null, "src")?.trim()?.ifEmpty { null }
                     }
                     "display-name" -> if (curChannelId != null) curNames += parser.nextText()
                     "programme" -> {
@@ -80,7 +86,10 @@ object XmltvParser {
                             val keys = LinkedHashSet<String>()
                             idToKeys[id.lowercase()]?.let { keys.addAll(it) }
                             curNames.forEach { n -> nameToKeys[normalize(n)]?.let { keys.addAll(it) } }
-                            if (keys.isNotEmpty()) resolved[id] = keys.toList()
+                            if (keys.isNotEmpty()) {
+                                resolved[id] = keys.toList()
+                                curIcon?.let { icon -> keys.forEach { k -> logos.putIfAbsent(k, icon) } }
+                            }
                         }
                         curChannelId = null
                     }
@@ -100,9 +109,10 @@ object XmltvParser {
             event = parser.next()
         }
 
-        return EpgIndex(result.mapValues { (_, list) ->
-            list.sortedBy { it.startMs }.distinctBy { it.startMs }
-        })
+        return EpgIndex(
+            result.mapValues { (_, list) -> list.sortedBy { it.startMs }.distinctBy { it.startMs } },
+            logos,
+        )
     }
 
     /** gzip / zip / düz XML'i otomatik tanır. */

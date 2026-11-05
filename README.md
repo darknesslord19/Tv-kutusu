@@ -10,16 +10,18 @@ Kumandayla kullanılan, sade ve hızlı bir IPTV oynatıcı. Kendi m3u/m3u8 list
 
 Her `main` dalına gönderilen değişiklikte GitHub Actions APK'yı otomatik derler ve yeni bir sürüm (Release) olarak yayınlar.
 
-## Özellikler (v0.3)
+## Özellikler (v0.4)
 
 - **Kumanda için tasarlandı:** her ekran ok tuşları, OK ve Geri ile çalışır.
+- **Birden çok liste:** istediğin kadar m3u/m3u8 linki ekle (en fazla 20). Her listenin kategorileri ana ekranda o listenin başlığı altında ayrı görünür; bir liste açılmazsa diğerleri çalışmaya devam eder.
 - **Kanal ızgarası:** logo, şu anki program ve ilerleme çubuğu; kategoriler listedeki sırayla.
+- **Kanal logoları:** `tvg-logo` / `logo` (göreli yollar da), yoksa EPG'deki kanal ikonu; PNG, JPG, WebP ve SVG. Logo yoksa kanal adının baş harfleri görünür.
 - **Favoriler:** oynatıcıda OK → "Favorilere ekle". Favoriler kategorisi en üstte görünür.
 - **Yayın akışı (EPG):** XMLTV (`xml`, `xml.gz`, `zip`) ya da listedeki `url-tvg` linki. Kanallar `tvg-id` veya isimle eşleştirilir.
 - **Oynatıcı:** dahili Media3 ExoPlayer (HLS ve MPEG-TS) ya da harici uygulama (VLC, MX Player…). Yayın biçimi Otomatik / HLS / MPEG-TS seçilebilir. Kopmada otomatik yeniden bağlanma (5 deneme), donanım çözücü sorununda yedek çözücü, anlaşılır hata mesajları.
 - **Dokunmatik kontroller:** telefonda videoya dokununca oynat/duraklat, önceki/sonraki, kanallar, yayın akışı ve favori butonları çıkar; panelde çözünürlük ve codec görünür.
 - **Kanal başına başlıklar:** `#EXTVLCOPT:http-user-agent`, `http-referrer` ve `url|User-Agent=…&Referer=…` biçimi.
-- **Telefondan kurulum (karekod):** TV ekranındaki karekodu telefonla okut, açılan sayfaya linkleri yapıştır, "Gönder"e dokun. Sayfa yalnızca ev ağında çalışır, tek kullanımlık kodla korunur ve gönderimden sonra kapanır.
+- **Telefondan kurulum (karekod):** TV ekranındaki karekodu telefonla okut, açılan sayfaya bir ya da birden çok linki yapıştır (toplu yapıştırma da var), "Gönder"e dokun. Sayfa yalnızca ev ağında çalışır, tek kullanımlık kodla korunur ve gönderimden sonra kapanır.
 - **Otomatik güncelleme:** liste ve yayın akışı 6, 12 veya 24 saatte bir yenilenir (ya da kapalı).
 - TV, telefon ve tablette çalışır; telefonda dikey düzen desteklenir.
 - Hesap, reklam, analitik yok. Linkler yalnızca cihazda saklanır.

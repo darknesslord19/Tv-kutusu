@@ -115,12 +115,18 @@ private fun GroupChips(vm: AppViewModel) {
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(vm.groups, key = { it }) { g ->
-            val sel = g == vm.selectedGroup
-            Focusable(onClick = { vm.selectedGroup = g }, selected = sel, shape = RoundedCornerShape(50), focusedScale = 1.03f) { focused ->
+        items(vm.groups, key = { it.id }) { g ->
+            val sel = g.id == vm.selectedGroup
+            Focusable(onClick = { vm.selectedGroup = g.id }, selected = sel || g.isSource, shape = RoundedCornerShape(50), focusedScale = 1.03f) { focused ->
                 Text(
-                    g, color = if (sel || focused) Palette.Text else Palette.TextDim, fontSize = 14.sp,
-                    fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1,
+                    if (g.isSource) "▸ ${g.label}" else g.label,
+                    color = when {
+                        g.isSource -> Palette.Accent
+                        sel || focused -> Palette.Text
+                        else -> Palette.TextDim
+                    },
+                    fontSize = 14.sp,
+                    fontWeight = if (sel || g.isSource) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1,
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                 )
             }
@@ -131,31 +137,41 @@ private fun GroupChips(vm: AppViewModel) {
 @Composable
 private fun GroupList(vm: AppViewModel, modifier: Modifier) {
     val groups = vm.groups
+    val multi = groups.any { it.isSource }
     LazyColumn(
         modifier,
         contentPadding = PaddingValues(start = 24.dp, end = 12.dp, top = 4.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        items(groups, key = { it }) { g ->
-            val count = vm.channelsIn(g).size
+        items(groups, key = { it.id }) { g ->
+            val sel = g.id == vm.selectedGroup
+            Column {
+            if (g.isSource) Spacer(Modifier.height(10.dp))
             Focusable(
-                onClick = { vm.selectedGroup = g },
-                onFocus = { vm.selectedGroup = g },
-                selected = g == vm.selectedGroup,
+                onClick = { vm.selectedGroup = g.id },
+                onFocus = { vm.selectedGroup = g.id },
+                selected = sel,
                 focusedScale = 1.02f,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth()
+                    .padding(start = if (multi && !g.isSource && g.id.startsWith("grp:")) 12.dp else 0.dp),
             ) { focused ->
                 Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        g,
-                        color = if (focused || g == vm.selectedGroup) Palette.Text else Palette.TextDim,
-                        fontSize = 15.sp,
+                        g.label,
+                        color = when {
+                            g.isSource -> Palette.Accent
+                            focused || sel -> Palette.Text
+                            else -> Palette.TextDim
+                        },
+                        fontSize = if (g.isSource) 16.sp else 15.sp,
+                        fontWeight = if (g.isSource) FontWeight.Bold else FontWeight.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    Text("$count", color = Palette.TextDim, fontSize = 13.sp)
+                    Text("${g.count}", color = Palette.TextDim, fontSize = 13.sp)
                 }
+            }
             }
         }
     }
@@ -209,24 +225,8 @@ private fun ChannelCard(vm: AppViewModel, ch: Channel, modifier: Modifier) {
     val cur = vm.epg.current(ch, now)
     Focusable(onClick = { vm.play(ch) }, modifier = modifier.fillMaxWidth()) { focused ->
         Column(Modifier.padding(10.dp)) {
-            Box(
-                Modifier.fillMaxWidth().height(84.dp).clip(RoundedCornerShape(6.dp))
-                    .background(Color(0xFF0B0D11)),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (ch.logo != null) {
-                    AsyncImage(
-                        model = ch.logo,
-                        contentDescription = ch.name,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize().padding(8.dp),
-                    )
-                } else {
-                    Text(
-                        ch.name.take(2).uppercase(),
-                        color = Palette.TextDim, fontSize = 28.sp, fontWeight = FontWeight.Bold,
-                    )
-                }
+            Box(Modifier.fillMaxWidth().height(84.dp)) {
+                ChannelLogo(vm.logoOf(ch), ch.name, Modifier.fillMaxSize())
                 if (ch.key in vm.favorites) {
                     Text("★", color = Palette.Fav, fontSize = 16.sp,
                         modifier = Modifier.align(Alignment.TopEnd).padding(6.dp))

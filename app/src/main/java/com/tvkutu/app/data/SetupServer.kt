@@ -21,9 +21,10 @@ import java.security.SecureRandom
  * - Hiçbir veri internete gönderilmez; her şey aynı Wi-Fi ağı içinde kalır.
  */
 class SetupServer(
-    private val currentPlaylist: String,
+    /** Mevcut linkler (ad, adres) — form bunlarla dolu açılır. */
+    private val currentSources: List<Pair<String, String>>,
     private val currentEpg: String,
-    private val onSubmit: (playlist: String, epg: String) -> Unit,
+    private val onSubmit: (entries: List<Pair<String, String>>, epg: String) -> Unit,
 ) {
     val code: String = randomCode()
     @Volatile private var socket: ServerSocket? = null
@@ -93,19 +94,20 @@ class SetupServer(
                     respond(out, 413, "text/plain", "Too large"); return
                 }
                 val body = String(readBytes(input, contentLength), Charsets.UTF_8)
-                val form = parseForm(body)
-                val playlist = form["playlist"].orEmpty().trim()
-                val epg = form["epg"].orEmpty().trim()
-                val error = validate(playlist, epg)
+                val sub = toSubmission(parseFormList(body))
+                val error = validate(sub)
                 if (error != null) {
-                    respond(out, 200, "text/html", formPage(expected, playlist, epg, error))
+                    respond(out, 200, "text/html", formPage(expected, sub.entries, sub.epg, error))
                 } else {
+                    finished = true
+                    onSubmit(sub.entries, sub.epg)
+                    val list = sub.entries.joinToString("") { (n, u) ->
+                        "<li><b>${esc(n.ifEmpty { "Adsız" })}</b><br><span class=\"muted small2\">${esc(u)}</span></li>"
+                    }
                     respond(out, 200, "text/html", page(
                         "Gönderildi ✓",
-                        "<p>Linkler TV'ye ulaştı. Liste TV'de yükleniyor; bu sayfayı kapatabilirsin.</p>"
+                        "<p>${sub.entries.size} link TV'ye ulaştı. Listeler TV'de yükleniyor; bu sayfayı kapatabilirsin.</p><ul class=\"sent\">$list</ul>"
                     ))
-                    finished = true
-                    onSubmit(playlist, epg)
                 }
             }
             else -> respond(out, 405, "text/plain", "")
@@ -114,32 +116,68 @@ class SetupServer(
 
     // ---- HTML ----
 
-    private fun formPage(action: String, pl: String = currentPlaylist, epg: String = currentEpg, error: String? = null) =
-        page("TvKutu kurulumu", """
-            <p class="muted">Linkleri buraya yapıştır ve <b>Gönder</b>'e dokun. TV otomatik olarak listeyi yükleyecek.</p>
+    private fun formPage(
+        action: String,
+        entries: List<Pair<String, String>> = currentSources,
+        epg: String = currentEpg,
+        error: String? = null,
+    ): String {
+        val rows = (entries + ("" to "")).joinToString("\n") { (n, u) -> rowHtml(n, u) }
+        return page("TvKutu kurulumu", """
+            <p class="muted">Bir ya da birden çok playlist linki ekle, <b>Gönder</b>'e dokun. Her linkin kategorileri TV'de ayrı ayrı görünür.</p>
             ${if (error != null) "<div class=\"err\">${esc(error)}</div>" else ""}
             <form method="post" action="$action" autocomplete="off">
-              <label for="pl">Playlist linki (m3u / m3u8)</label>
-              <div class="row">
-                <input id="pl" name="playlist" type="url" inputmode="url" placeholder="https://…/playlist.m3u" value="${esc(pl)}" required>
-                <button type="button" class="ghost" onclick="pasteTo('pl')">Yapıştır</button>
+              <h2>Playlist linkleri</h2>
+              <div id="rows">
+              $rows
               </div>
-              <label for="epg">Yayın akışı / EPG linki <span class="muted">(isteğe bağlı)</span></label>
-              <div class="row">
-                <input id="epg" name="epg" type="url" inputmode="url" placeholder="https://…/epg.xml.gz" value="${esc(epg)}">
-                <button type="button" class="ghost" onclick="pasteTo('epg')">Yapıştır</button>
-              </div>
-              <p class="hint">Boş bırakırsan listedeki <code>url-tvg</code> linki kullanılır.</p>
+              <template id="tpl">${rowHtml("", "")}</template>
+              <button type="button" class="ghost wide" onclick="addRow()">＋ Link ekle</button>
+
+              <details>
+                <summary>Toplu ekle (her satıra bir link)</summary>
+                <textarea name="bulk" rows="5" placeholder="https://…/liste1.m3u&#10;Spor https://…/liste2.m3u8"></textarea>
+                <p class="hint">Satırın başına isterseniz bir ad yazabilirsiniz: <code>Spor https://…</code></p>
+              </details>
+
+              <h2>Yayın akışı (EPG) <span class="muted">— isteğe bağlı</span></h2>
+              <textarea name="epg" rows="2" placeholder="https://…/epg.xml.gz">${esc(epg)}</textarea>
+              <p class="hint">Birden çok EPG linkini alt alta yazabilirsin. Boş bırakırsan listelerdeki <code>url-tvg</code> linkleri kullanılır.</p>
+
               <button type="submit" class="primary">Gönder</button>
             </form>
-            <p class="muted small">TvKutu yalnızca bir oynatıcıdır; kanal içermez. Yasal olarak abone olduğun sağlayıcının linkini kullan.</p>
+            <p class="muted small">TvKutu yalnızca bir oynatıcıdır; kanal içermez. Yasal olarak abone olduğun sağlayıcının linklerini kullan.</p>
             <script>
-              async function pasteTo(id){
-                try { const t = await navigator.clipboard.readText(); if(t) document.getElementById(id).value = t.trim(); }
-                catch(e){ document.getElementById(id).focus(); }
+              function addRow(){
+                const t=document.getElementById('tpl').content.firstElementChild.cloneNode(true);
+                document.getElementById('rows').appendChild(t);
+                t.querySelector('.u').focus();
+              }
+              function delRow(b){
+                const rows=document.querySelectorAll('#rows .src');
+                const r=b.closest('.src');
+                if(rows.length>1){ r.remove(); } else { r.querySelectorAll('input').forEach(i=>i.value=''); }
+              }
+              async function paste(b){
+                const i=b.closest('.src').querySelector('.u');
+                try{ const t=await navigator.clipboard.readText(); if(t) i.value=t.trim(); }catch(e){ i.focus(); }
               }
             </script>
         """.trimIndent())
+    }
+
+    private fun rowHtml(name: String, url: String) = """
+        <div class="src">
+          <div class="row">
+            <input class="n" name="name" type="text" placeholder="Ad (ör. Spor, Ulusal)" value="${esc(name)}">
+            <button type="button" class="ghost del" onclick="delRow(this)" aria-label="Sil">✕</button>
+          </div>
+          <div class="row">
+            <input class="u" name="url" type="text" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="https://…/playlist.m3u" value="${esc(url)}">
+            <button type="button" class="ghost" onclick="paste(this)">Yapıştır</button>
+          </div>
+        </div>
+    """.trimIndent()
 
     private fun page(title: String, body: String) = """
         <!doctype html><html lang="tr"><head><meta charset="utf-8">
@@ -153,6 +191,16 @@ class SetupServer(
           .brand{color:#3ddc97;font-weight:700;font-size:15px;letter-spacing:.06em;text-transform:uppercase}
           h1{font-size:24px;margin:4px 0 12px}
           label{display:block;font-weight:600;margin:18px 0 6px}
+          h2{font-size:17px;margin:26px 0 10px}
+          .src{background:#151920;border:1px solid #232833;border-radius:14px;padding:10px;margin-bottom:10px}
+          .src .row+.row{margin-top:8px}
+          .src .n{padding:10px 12px;font-size:15px}
+          .del{padding:0 14px}
+          .ghost.wide{width:100%;padding:13px;margin-top:2px;color:#3ddc97;border-color:#2f6b52}
+          textarea{width:100%;padding:12px;border-radius:12px;border:1px solid #2b313d;background:#181c23;color:#eceff4;font:15px/1.4 ui-monospace,monospace;resize:vertical}
+          textarea:focus{outline:none;border-color:#3ddc97}
+          details{margin-top:14px}summary{color:#9aa3b2;cursor:pointer;padding:6px 0}
+          .sent{padding-left:18px}.sent li{margin:8px 0}.small2{font-size:13px;word-break:break-all}
           .row{display:flex;gap:8px}
           input{flex:1;min-width:0;padding:14px;border-radius:12px;border:1px solid #2b313d;background:#181c23;color:#eceff4;font-size:16px}
           input:focus{outline:none;border-color:#3ddc97}
@@ -208,19 +256,66 @@ class SetupServer(
     }
 
     companion object {
-        fun parseForm(body: String): Map<String, String> =
-            body.split('&').filter { it.isNotEmpty() }.associate { kv ->
+        data class Submission(val entries: List<Pair<String, String>>, val epg: String)
+
+        /** application/x-www-form-urlencoded gövdesini sıralı (ad, değer) listesine çevirir. */
+        fun parseFormList(body: String): List<Pair<String, String>> =
+            body.split('&').filter { it.isNotEmpty() }.map { kv ->
                 val k = URLDecoder.decode(kv.substringBefore('='), "UTF-8")
                 val v = URLDecoder.decode(kv.substringAfter('=', ""), "UTF-8")
                 k to v
             }
 
-        fun validate(playlist: String, epg: String): String? {
+        private val urlRegex = Regex("""(?i)\bhttps?://\S+""")
+
+        /**
+         * Form alanlarını linklere çevirir: her "name" kendisinden sonraki "url" ile eşleşir.
+         * Bir url alanına birden çok link yapıştırılmışsa hepsi ayrı link olur.
+         * "bulk" alanındaki her satır ayrı bir linktir ("Ad https://…" biçimi de olur).
+         */
+        fun toSubmission(form: List<Pair<String, String>>): Submission {
+            val entries = ArrayList<Pair<String, String>>()
+            var pendingName = ""
+            var epg = ""
+            fun addAll(name: String, text: String) {
+                val trimmed = text.trim()
+                if (trimmed.isEmpty()) return
+                val urls = urlRegex.findAll(trimmed).map { it.value.trimEnd(',', ';') }.toList()
+                if (urls.isEmpty()) {
+                    entries += name.trim() to trimmed // geçersiz; doğrulama uyaracak
+                } else {
+                    urls.forEachIndexed { i, u ->
+                        val n = if (urls.size == 1) name.trim() else if (name.isBlank()) "" else "${name.trim()} ${i + 1}"
+                        entries += n to u
+                    }
+                }
+            }
+            for ((k, v) in form) {
+                when (k) {
+                    "name" -> pendingName = v
+                    "url", "playlist" -> { addAll(pendingName, v); pendingName = "" }
+                    "bulk" -> v.lines().forEach { line ->
+                        val m = urlRegex.find(line)
+                        if (m != null) addAll(line.substring(0, m.range.first).trim().trimEnd('|', ',', ':', '-').trim(), line.substring(m.range.first))
+                        else if (line.isNotBlank()) addAll("", line)
+                    }
+                    "epg" -> epg = v.lines().map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
+                }
+            }
+            // Aynı link iki kez eklendiyse birini at.
+            val unique = entries.distinctBy { it.second }
+            return Submission(unique, epg)
+        }
+
+        fun validate(sub: Submission): String? {
             fun ok(u: String) = u.startsWith("http://", true) || u.startsWith("https://", true)
+            val bad = sub.entries.firstOrNull { !ok(it.second) }
+            val badEpg = sub.epg.lines().map { it.trim() }.filter { it.isNotEmpty() }.firstOrNull { !ok(it) }
             return when {
-                playlist.isEmpty() -> "Playlist linki boş olamaz."
-                !ok(playlist) -> "Playlist linki http:// veya https:// ile başlamalı."
-                epg.isNotEmpty() && !ok(epg) -> "EPG linki http:// veya https:// ile başlamalı."
+                sub.entries.isEmpty() -> "En az bir playlist linki gir."
+                bad != null -> "Bu link http:// veya https:// ile başlamalı: ${bad.second.take(60)}"
+                sub.entries.size > 20 -> "En fazla 20 link eklenebilir."
+                badEpg != null -> "EPG linki http:// veya https:// ile başlamalı: ${badEpg.take(60)}"
                 else -> null
             }
         }

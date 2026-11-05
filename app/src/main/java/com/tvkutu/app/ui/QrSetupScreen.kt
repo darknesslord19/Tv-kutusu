@@ -75,8 +75,8 @@ fun QrSetupScreen(vm: AppViewModel) {
             state = QrState.Error("TV bir ağa bağlı görünmüyor. Wi‑Fi veya kablo bağlantısını kontrol edip tekrar dene.")
         } else {
             try {
-                val s = SetupServer(vm.repo.playlistUrl, vm.repo.epgUrl) { pl, epg ->
-                    main.post { vm.applyFromPhone(pl, epg) }
+                val s = SetupServer(vm.sources.map { it.name to it.url }, vm.repo.epgUrl) { entries, epg ->
+                    main.post { vm.applyFromPhone(entries, epg) }
                 }
                 val port = s.start()
                 server = s
@@ -150,7 +150,7 @@ private fun Steps(url: String, onBack: () -> Unit, modifier: Modifier) {
     Column(modifier) {
         Step(1, "Telefonun TV ile aynı Wi‑Fi ağına bağlı olsun.")
         Step(2, "Telefonun kamerasıyla karekodu okut ve açılan linke dokun.")
-        Step(3, "Sayfadaki alanlara playlist (ve istersen EPG) linkini yapıştır, \"Gönder\"e dokun.")
+        Step(3, "Bir ya da birden çok playlist linkini (istersen EPG'yi de) yapıştır, \"Gönder\"e dokun.")
         Spacer(Modifier.height(12.dp))
         Text("Karekod okumazsa telefonun tarayıcısında şu adresi aç:", color = Palette.TextDim, fontSize = 14.sp)
         Spacer(Modifier.height(6.dp))

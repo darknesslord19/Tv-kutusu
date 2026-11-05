@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -40,16 +41,20 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tvkutu.app.AppViewModel
 import com.tvkutu.app.BuildConfig
+import com.tvkutu.app.data.SetupServer
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SetupScreen(vm: AppViewModel) {
-    var playlist by rememberSaveable { mutableStateOf(vm.repo.playlistUrl) }
-    var epg by rememberSaveable { mutableStateOf(vm.repo.epgUrl) }
+    val entries = remember { mutableStateListOf<Pair<String, String>>().apply { addAll(vm.sources.map { it.name to it.url }) } }
+    var newName by rememberSaveable { mutableStateOf("") }
+    var newUrl by rememberSaveable { mutableStateOf("") }
+    var epg by rememberSaveable { mutableStateOf(vm.repo.epgList().joinToString(", ")) }
     var error by remember { mutableStateOf<String?>(null) }
     val focusManager = LocalFocusManager.current
     val qrFocus = remember { FocusRequester() }
@@ -71,20 +76,32 @@ fun SetupScreen(vm: AppViewModel) {
         cursorColor = Palette.Accent,
     )
 
+    fun isUrl(u: String) = u.startsWith("http://", true) || u.startsWith("https://", true)
+
+    fun addNew(): Boolean {
+        val u = newUrl.trim()
+        if (u.isEmpty()) return true
+        if (!isUrl(u)) {
+            error = "Link http:// veya https:// ile başlamalı."
+            return false
+        }
+        if (entries.none { it.second == u }) entries += newName.trim() to u
+        newName = ""; newUrl = ""; error = null
+        return true
+    }
+
     fun save() {
-        val url = playlist.trim()
-        val e = epg.trim()
-        error = when {
-            url.isEmpty() -> "Playlist linkini gir ya da telefondan kurulumu kullan."
-            !url.startsWith("http://", true) && !url.startsWith("https://", true) ->
-                "Playlist linki http:// veya https:// ile başlamalı."
-            e.isNotEmpty() && !e.startsWith("http://", true) && !e.startsWith("https://", true) ->
-                "EPG linki http:// veya https:// ile başlamalı."
-            else -> null
+        if (!addNew()) return
+        val sub = SetupServer.Submission(
+            entries.toList(),
+            epg.split(',', ' ', '\n').map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n"),
+        )
+        error = SetupServer.validate(sub)?.let {
+            if (entries.isEmpty()) "En az bir playlist linki ekle ya da telefondan kurulumu kullan." else it
         }
         if (error == null) {
             vm.consumeMessage()
-            vm.saveSetup(url, e)
+            vm.saveSetup(sub.entries, sub.epg)
         }
     }
 
@@ -108,8 +125,8 @@ fun SetupScreen(vm: AppViewModel) {
                 // ---- Playlist ve yayın akışı ----
                 Section("Playlist ve yayın akışı")
                 Text(
-                    "Playlist linkini (m3u/m3u8) ve istersen yayın akışı linkini (XMLTV) gir. " +
-                        "EPG linki boş kalırsa listedeki url-tvg linki kullanılır.",
+                    "Bir ya da birden çok playlist linki (m3u/m3u8) ekleyebilirsin; her listenin kategorileri ana ekranda ayrı görünür. " +
+                        "EPG linki boş kalırsa listelerdeki url-tvg linkleri kullanılır.",
                     color = Palette.TextDim, fontSize = 15.sp,
                 )
                 Spacer(Modifier.height(16.dp))
@@ -130,28 +147,66 @@ fun SetupScreen(vm: AppViewModel) {
                         )
                     }
                 }
-                Spacer(Modifier.height(18.dp))
-                Text("veya linkleri elle gir:", color = Palette.TextDim, fontSize = 15.sp)
+                // Ekli linkler
+                Spacer(Modifier.height(20.dp))
+                Text(
+                    if (entries.isEmpty()) "Henüz link eklenmedi." else "Ekli linkler (${entries.size})",
+                    color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                )
                 Spacer(Modifier.height(10.dp))
+                entries.forEachIndexed { i, (name, url) ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                            .background(Palette.Surface, RoundedCornerShape(12.dp))
+                            .padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(name.ifBlank { "Liste ${i + 1}" }, color = Palette.Text, fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(url, color = Palette.TextDim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        TvButton("Sil", onClick = { entries.removeAt(i); error = null })
+                    }
+                }
 
+                Spacer(Modifier.height(10.dp))
+                Text("Elle link ekle:", color = Palette.TextDim, fontSize = 15.sp)
+                Spacer(Modifier.height(10.dp))
                 OutlinedTextField(
-                    value = playlist,
-                    onValueChange = { playlist = it; error = null },
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text("Ad (isteğe bağlı, ör. Spor)") },
+                    singleLine = true,
+                    colors = fieldColors,
+                    shape = RoundedCornerShape(12.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = newUrl,
+                    onValueChange = { newUrl = it; error = null },
                     label = { Text("Playlist linki (m3u / m3u8)") },
                     placeholder = { Text("https://…/playlist.m3u") },
                     singleLine = true,
                     colors = fieldColors,
                     shape = RoundedCornerShape(12.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
-                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { addNew() }),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(10.dp))
+                TvButton("＋ Listeye ekle", onClick = { addNew() })
+
+                Spacer(Modifier.height(18.dp))
                 OutlinedTextField(
                     value = epg,
                     onValueChange = { epg = it; error = null },
                     label = { Text("EPG linki (xml, xml.gz) — isteğe bağlı") },
-                    placeholder = { Text("https://…/epg.xml.gz") },
+                    placeholder = { Text("Birden çok link için virgülle ayır") },
                     singleLine = true,
                     colors = fieldColors,
                     shape = RoundedCornerShape(12.dp),
