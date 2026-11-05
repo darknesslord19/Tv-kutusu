@@ -1,6 +1,12 @@
 package com.tvkutu.app
 
 import android.os.Bundle
+import android.os.SystemClock
+import android.view.KeyEvent
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.launch
 import coil.Coil
 import coil.ImageLoader
 import coil.decode.SvgDecoder
@@ -54,6 +60,20 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setupImageLoader()
+        // Telefon kumandasından gelen tuşları pencereye ilet (kumandanın kendisine basılmış gibi).
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                vm.remoteKeys.collect { code ->
+                    if (code == KeyEvent.KEYCODE_BACK) {
+                        onBackPressedDispatcher.onBackPressed()
+                    } else {
+                        val t = SystemClock.uptimeMillis()
+                        dispatchKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0))
+                        dispatchKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_UP, code, 0))
+                    }
+                }
+            }
+        }
         setContent {
             TvKutuTheme {
                 Box(Modifier.fillMaxSize().background(Palette.Bg)) {

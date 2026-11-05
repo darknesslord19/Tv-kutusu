@@ -86,6 +86,39 @@ nav.tabs button[aria-current="page"]{color:var(--acc)}
 .pin input:focus{outline:none;border-color:var(--acc)}
 .spin{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:r 0.8s linear infinite;display:inline-block;vertical-align:-3px}
 @keyframes r{to{transform:rotate(360deg)}}
+.np{margin:6px 0 0;padding:12px;border-radius:16px;background:var(--s1)}
+.np .top{display:flex;align-items:center;gap:12px}
+.np .th{flex:none;width:64px;height:40px;border-radius:6px;background:#0b0d11;display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--dim);font-size:12px;font-weight:800}
+.np .th.poster{width:46px;height:69px}
+.np .th img{width:100%;height:100%;object-fit:contain}.np .th.poster img{object-fit:cover}
+.np .tt{flex:1;min-width:0}.np .tt b{font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.np .tt span{display:block;font-size:13px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.np .tt .live{display:inline-block;padding:2px 7px;border-radius:5px;background:var(--danger);color:#fff;font-size:11px;font-weight:800;letter-spacing:.6px;margin-left:6px;vertical-align:2px}
+.np .st{flex:none;font-size:12px;font-weight:700}
+.bar{position:relative;height:32px;margin-top:6px;display:flex;align-items:center;touch-action:none}
+.bar .tr{position:absolute;left:0;right:0;height:5px;border-radius:3px;background:var(--line)}
+.bar .fl{position:absolute;left:0;height:5px;border-radius:3px;background:var(--acc)}
+.bar .th2{position:absolute;width:16px;height:16px;margin-left:-8px;border-radius:8px;background:#fff}
+.times{display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:#b7bfcc}
+.rc{flex:1;display:flex;flex-direction:column;justify-content:center;gap:18px;padding:16px 0}
+.rc-mid{display:flex;align-items:center;justify-content:space-between;max-width:380px;width:100%;margin:0 auto}
+.vp{width:62px;height:168px;border-radius:31px;background:#1b2029;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:6px 0}
+.vp button{width:50px;height:50px;border:0;border-radius:25px;background:transparent;font-size:24px;font-weight:700}
+.vp button:active,.dpad button:active,.sm button:active,.big button:active{background:rgba(255,255,255,.12)}
+.vp span{font-size:12px;font-weight:800;color:var(--dim);text-align:center}
+.dpad{position:relative;width:210px;height:210px;border-radius:50%;background:#1b2029;box-shadow:inset 0 0 0 1px var(--line)}
+.dpad button{position:absolute;border:0;border-radius:16px;background:transparent;font-size:24px;font-weight:700}
+.dpad .u{left:75px;top:6px;width:60px;height:56px}.dpad .d{left:75px;bottom:6px;width:60px;height:56px}
+.dpad .l{left:6px;top:75px;width:56px;height:60px}.dpad .r{right:6px;top:75px;width:56px;height:60px}
+.dpad .ok{left:60px;top:60px;width:90px;height:90px;border-radius:45px;background:var(--acc);color:#0e1116;font-size:20px;font-weight:800}
+.dpad .ok:active{background:#7beab8}
+.sm{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;max-width:380px;width:100%;margin:0 auto}
+.sm button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;height:64px;border:0;border-radius:16px;background:var(--s1);font-size:12px;font-weight:600}
+.sm button i{font-style:normal;font-size:20px;line-height:1}
+.big{display:flex;align-items:center;justify-content:center;gap:28px}
+.big button{width:60px;height:60px;border:0;border-radius:30px;background:var(--s2);font-size:17px;font-weight:700}
+.big button.pp{width:78px;height:78px;border-radius:39px;background:#fff;color:#0e1116;font-size:26px;font-weight:800}
+.flash{position:fixed;left:50%;top:14px;transform:translateX(-50%);padding:8px 14px;border-radius:12px;background:#1e2a24;border:1px solid #2f6b52;font-size:13px;font-weight:700;white-space:nowrap;z-index:25}
 </style>
 </head>
 <body>
@@ -94,6 +127,53 @@ nav.tabs button[aria-current="page"]{color:var(--acc)}
     <span class="brand">TvKutu</span>
     <span id="hdrRight"></span>
   </header>
+
+  <!-- KUMANDA -->
+  <section id="vRemote" class="view hidden" style="padding:0 16px">
+    <div class="np" id="np" aria-live="polite">
+      <div class="top">
+        <span class="th" id="npThumb"></span>
+        <span class="tt"><b id="npTitle">Bağlanıyor…</b><span id="npSub"></span></span>
+        <span class="st" id="npState"></span>
+      </div>
+      <div class="bar hidden" id="npBar" role="slider" aria-label="Süre" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <span class="tr"></span><span class="fl" id="npFill"></span><span class="th2" id="npKnob"></span>
+      </div>
+      <div class="times hidden" id="npTimes"><span id="npLeft"></span><span id="npRight"></span></div>
+    </div>
+    <div class="rc">
+      <div class="rc-mid">
+        <div class="vp" role="group" id="chGroup" aria-label="Kanal">
+          <button type="button" data-k="chup" aria-label="Önceki kanal">▲</button>
+          <span id="chText">CH</span>
+          <button type="button" data-k="chdown" aria-label="Sonraki kanal">▼</button>
+        </div>
+        <div class="dpad">
+          <button type="button" class="u" data-k="up" aria-label="Yukarı">▲</button>
+          <button type="button" class="d" data-k="down" aria-label="Aşağı">▼</button>
+          <button type="button" class="l" data-k="left" aria-label="Sol">◀</button>
+          <button type="button" class="r" data-k="right" aria-label="Sağ">▶</button>
+          <button type="button" class="ok" data-k="ok" aria-label="Tamam">OK</button>
+        </div>
+        <div class="vp" role="group" aria-label="Ses">
+          <button type="button" data-vol="1" aria-label="Sesi aç">+</button>
+          <span id="volText">Ses</span>
+          <button type="button" data-vol="-1" aria-label="Sesi kıs">−</button>
+        </div>
+      </div>
+      <div class="sm">
+        <button type="button" data-k="back"><i>⟵</i>Geri</button>
+        <button type="button" data-k="home"><i>⌂</i>Ana ekran</button>
+        <button type="button" data-vol="0" id="muteBtn"><i>♪</i>Sessiz</button>
+        <button type="button" data-k="menu"><i>☰</i>Menü</button>
+      </div>
+      <div class="big">
+        <button type="button" id="bBack" aria-label="10 saniye geri">↺10</button>
+        <button type="button" class="pp" id="bPlay" data-k="play" aria-label="Oynat / duraklat">❚❚</button>
+        <button type="button" id="bFwd" aria-label="10 saniye ileri">↻10</button>
+      </div>
+    </div>
+  </section>
 
   <!-- HESAPLAR -->
   <section id="vPick" class="view">
@@ -174,6 +254,9 @@ nav.tabs button[aria-current="page"]{color:var(--acc)}
 </div>
 
 <nav class="tabs" aria-label="Bölümler"><div class="in2">
+  <button type="button" data-tab="remote">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="4"/><circle cx="12" cy="9" r="2.4"/><path d="M10 15h4M10 18h4"/></svg>
+    Kumanda</button>
   <button type="button" data-tab="pick" aria-current="page">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><path d="M17 14v6M14 17h6" stroke-linecap="round"/></svg>
     Hesaplar</button>
@@ -186,6 +269,7 @@ nav.tabs button[aria-current="page"]{color:var(--acc)}
 </div></nav>
 
 <div id="toastHost"></div>
+<div id="flashHost"></div>
 <div id="sheetHost"></div>
 
 <script>
@@ -474,6 +558,127 @@ nav.tabs button[aria-current="page"]{color:var(--acc)}
     else toast('Panoya erişilemedi; "Dosya seç"i kullan', true);
   };
 
+  // ---------- Kumanda ----------
+  var NP = null, flashTimer;
+  function flash(text){
+    clearTimeout(flashTimer);
+    $('flashHost').innerHTML = '<div class="flash" role="status">TV ← ' + esc(text) + '</div>';
+    flashTimer = setTimeout(function(){ $('flashHost').innerHTML = ''; }, 1100);
+  }
+  function buzz(){ try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) {} }
+  function clockStr(ms){
+    var s = Math.max(0, Math.round(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+    return (h > 0 ? h + ':' + (m < 10 ? '0' : '') : '') + m + ':' + (x < 10 ? '0' : '') + x;
+  }
+  function hhmm(t){ var d = new Date(t); return (d.getHours() < 10 ? '0' : '') + d.getHours() + ':' + (d.getMinutes() < 10 ? '0' : '') + d.getMinutes(); }
+  var KEY_LABEL = { up: '▲', down: '▼', left: '◀', right: '▶', ok: 'OK', back: 'Geri', home: 'Ana ekran', menu: 'Menü', play: 'Oynat/Duraklat', chup: 'Önceki', chdown: 'Sonraki' };
+  function sendKey(k){
+    buzz();
+    var label = KEY_LABEL[k] || k;
+    if (NP && NP.screen === 'player' && !NP.live && (k === 'left' || k === 'right')) label = (k === 'left' ? '−10 sn' : '+10 sn');
+    if (NP && NP.screen === 'player' && k === 'play') label = NP.playing ? 'Duraklat' : 'Oynat';
+    flash(label);
+    call('key', { k: k }).then(function(){ setTimeout(pollNow, 250); }, function(){ toast('TV\'ye ulaşılamadı', true); });
+  }
+  function seek(body, label){
+    buzz(); flash(label);
+    call('seek', body).then(function(){ setTimeout(pollNow, 250); }, function(){ toast('TV\'ye ulaşılamadı', true); });
+  }
+  document.querySelectorAll('[data-k]').forEach(function(b){ b.addEventListener('click', function(){ sendKey(b.getAttribute('data-k')); }); });
+  document.querySelectorAll('[data-vol]').forEach(function(b){
+    b.addEventListener('click', function(){
+      buzz();
+      var d = +b.getAttribute('data-vol');
+      call('vol', { d: d }).then(function(v){
+        if (v.error) { toast(v.error, true); return; }
+        renderVol(v);
+        flash(v.muted ? 'Sessiz' : 'Ses ' + v.vol);
+      }, function(){ toast('TV\'ye ulaşılamadı', true); });
+    });
+  });
+  function renderVol(v){
+    if (!v || v.vol == null) return;
+    $('volText').textContent = v.muted ? 'Sessiz' : 'Ses ' + v.vol;
+    $('muteBtn').querySelector('i').textContent = v.muted ? '♪̸' : '♪';
+  }
+  $('bBack').onclick = function(){
+    if (NP && NP.screen === 'player' && !NP.live) seek({ by: -10000 }, '−10 sn · ' + clockStr((NP.pos || 0) - 10000));
+    else sendKey(NP && NP.screen === 'player' ? 'left' : 'left');
+  };
+  $('bFwd').onclick = function(){
+    if (NP && NP.screen === 'player' && !NP.live) seek({ by: 10000 }, '+10 sn · ' + clockStr((NP.pos || 0) + 10000));
+    else sendKey('right');
+  };
+  (function(){
+    var bar = $('npBar');
+    function frac(e){ var r = bar.getBoundingClientRect(); return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); }
+    var drag = false;
+    bar.addEventListener('pointerdown', function(e){ if (!NP || NP.live || !NP.dur) return; drag = true; bar.setPointerCapture(e.pointerId); showFrac(frac(e)); });
+    bar.addEventListener('pointermove', function(e){ if (drag) showFrac(frac(e)); });
+    bar.addEventListener('pointerup', function(e){
+      if (!drag) return; drag = false;
+      var t = frac(e) * NP.dur; NP.pos = t; NP.seeking = Date.now();
+      seek({ to: Math.round(t) }, 'Sar · ' + clockStr(t));
+    });
+    bar.addEventListener('pointercancel', function(){ drag = false; });
+    function showFrac(f){ $('npFill').style.width = (f * 100) + '%'; $('npKnob').style.left = (f * 100) + '%'; $('npLeft').textContent = clockStr(f * NP.dur); NP.seeking = Date.now(); }
+  })();
+
+  function renderNow(n){
+    NP = n || {};
+    var inPlayer = NP.screen === 'player';
+    var th = $('npThumb');
+    th.className = 'th' + (inPlayer && !NP.live ? ' poster' : '');
+    var ini = esc((NP.title || 'TV').slice(0, 3).toUpperCase());
+    th.innerHTML = NP.logo ? '<img src="' + esc(NP.logo) + '" alt="" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=\'' + ini + '\'">' : ini;
+    $('npTitle').innerHTML = esc(NP.title || 'TvKutu') + (inPlayer && NP.live ? '<span class="live">CANLI</span>' : '');
+    $('npSub').textContent = NP.subtitle || '';
+    var st = $('npState');
+    if (inPlayer) { st.textContent = NP.playing ? '▶ Oynuyor' : '❚❚ Duraklatıldı'; st.style.color = NP.playing ? 'var(--acc)' : '#ffc857'; }
+    else { st.textContent = ''; }
+    var showBar = inPlayer && ((!NP.live && NP.dur > 0) || (NP.live && NP.progStart));
+    $('npBar').classList.toggle('hidden', !showBar);
+    $('npTimes').classList.toggle('hidden', !showBar);
+    if (showBar && !(NP.seeking && Date.now() - NP.seeking < 1500)) {
+      var f;
+      if (NP.live) {
+        var now = Date.now();
+        f = Math.min(1, Math.max(0, (now - NP.progStart) / (NP.progEnd - NP.progStart)));
+        $('npLeft').textContent = hhmm(NP.progStart);
+        var left = Math.max(1, Math.round((NP.progEnd - now) / 60000));
+        $('npRight').textContent = hhmm(NP.progEnd) + ' · ' + left + ' dk kaldı';
+      } else {
+        f = Math.min(1, Math.max(0, NP.pos / NP.dur));
+        $('npLeft').textContent = clockStr(NP.pos);
+        $('npRight').textContent = clockStr(NP.dur);
+      }
+      $('npFill').style.width = (f * 100) + '%';
+      $('npFill').style.background = NP.live ? 'var(--danger)' : 'var(--acc)';
+      $('npKnob').style.display = NP.live ? 'none' : '';
+      $('npKnob').style.left = (f * 100) + '%';
+      $('npBar').setAttribute('aria-valuenow', Math.round(f * 100));
+      $('npBar').style.cursor = NP.live ? 'default' : 'pointer';
+    }
+    // Kanal/öğe düğmeleri ve sarma düğmeleri
+    $('chText').textContent = inPlayer && !NP.live ? 'Liste' : 'CH';
+    $('chGroup').setAttribute('aria-label', inPlayer && !NP.live ? 'Önceki/sonraki öğe' : 'Kanal');
+    var vodNow = inPlayer && !NP.live;
+    $('bBack').textContent = vodNow ? '↺10' : '◀';
+    $('bFwd').textContent = vodNow ? '↻10' : '▶';
+    $('bBack').setAttribute('aria-label', vodNow ? '10 saniye geri' : 'Sol');
+    $('bFwd').setAttribute('aria-label', vodNow ? '10 saniye ileri' : 'Sağ');
+    $('bPlay').textContent = inPlayer && !NP.playing ? '▶' : '❚❚';
+    renderVol(NP.volume);
+  }
+  var pollTimer;
+  function pollNow(){
+    clearTimeout(pollTimer);
+    if (S.tab !== 'remote' || document.hidden) return;
+    call('now').then(renderNow, function(){ $('npTitle').textContent = 'TV\'ye ulaşılamıyor'; $('npSub').textContent = 'TvKutu açık mı, aynı Wi‑Fi\'de misin?'; })
+      .then(function(){ pollTimer = setTimeout(pollNow, 1000); }, function(){ pollTimer = setTimeout(pollNow, 3000); });
+  }
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden) pollNow(); });
+
   // ---------- Sekmeler ----------
   function showTab(t){
     S.tab = t;
@@ -482,6 +687,8 @@ nav.tabs button[aria-current="page"]{color:var(--acc)}
     $('vForm').classList.toggle('hidden', t !== 'pick' || !S.form);
     $('vSearch').classList.toggle('hidden', t !== 'search');
     $('vBackup').classList.toggle('hidden', t !== 'backup');
+    $('vRemote').classList.toggle('hidden', t !== 'remote');
+    if (t === 'remote') pollNow();
     if (t === 'search') setTimeout(function(){ $('q').focus(); }, 50);
     renderPick();
   }
@@ -489,7 +696,10 @@ nav.tabs button[aria-current="page"]{color:var(--acc)}
 
   // Başlangıç: durumu al, hesapları kontrol ettir, TV'deki değişiklikleri izlemek için düzenli yenile.
   renderPick();
-  loadState().then(function(){ call('check').then(function(){ setTimeout(loadState, 4000); }, function(){}); });
+  loadState().then(function(){
+    if (S.accounts.length) showTab('remote'); else showTab('pick');
+    call('check').then(function(){ setTimeout(loadState, 4000); }, function(){});
+  });
   setInterval(function(){ if (!document.hidden && S.tab === 'pick' && !S.form) loadState(); }, 6000);
 })();
 </script>

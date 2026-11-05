@@ -3,7 +3,9 @@ package com.tvkutu.app
 import android.app.Application
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.media.AudioManager
 import android.net.Uri
+import android.view.KeyEvent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -23,6 +25,8 @@ import com.tvkutu.app.data.WatchProgress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.util.Locale
@@ -31,6 +35,18 @@ enum class Screen { Setup, QrSetup, Accounts, Home, Player }
 
 /** Kenar çubuğundaki bir satır: tüm kanallar, favoriler ya da kategori. */
 data class GroupItem(val id: String, val label: String, val count: Int, val isSource: Boolean = false, val locked: Boolean = false)
+
+/** Telefon kumandasından oynatıcıya giden komutlar. */
+sealed interface PlayerCommand {
+    data class SeekBy(val ms: Long) : PlayerCommand
+    data class SeekTo(val ms: Long) : PlayerCommand
+    data object Toggle : PlayerCommand
+    data object Prev : PlayerCommand
+    data object Next : PlayerCommand
+}
+
+/** Oynatıcının bildirdiği anlık durum (kumanda için). */
+data class PlaybackInfo(val posMs: Long = 0, val durMs: Long = 0, val playing: Boolean = false, val vod: Boolean = false)
 
 /** "Kaldığın yerden devam et?" penceresi isteği. */
 data class ResumeRequest(val channel: Channel, val progress: WatchProgress)
@@ -137,6 +153,39 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
     var remoteUrl by mutableStateOf<String?>(null)
         private set
+
+    private val _remoteKeys = MutableSharedFlow<Int>(extraBufferCapacity = 32)
+    /** Telefondan gelen tuşlar (Android tuş kodu); MainActivity pencereye iletir. */
+    val remoteKeys: SharedFlow<Int> = _remoteKeys
+    private val _playerCommands = MutableSharedFlow<PlayerCommand>(extraBufferCapacity = 32)
+    val playerCommands: SharedFlow<PlayerCommand> = _playerCommands
+    @Volatile private var playback = PlaybackInfo()
+
+    fun reportPlayback(info: PlaybackInfo) { playback = info }
+
+    /** Kumandadaki "Ana ekran": açık pencereleri kapatıp ana ekrana döner. */
+    fun goHome() {
+        pinRequest = null
+        resumeRequest = null
+        val a = activeSource
+        screen = when {
+            a == null -> Screen.Setup
+            a.locked && hasPin && !unlocked -> Screen.Accounts
+            else -> Screen.Home
+        }
+        if (screen == Screen.Home && playlist == null) start()
+    }
+
+    private val audio: AudioManager? get() = getApplication<Application>().getSystemService(AudioManager::class.java)
+
+    private fun volumeState(): Map<String, Any?> {
+        val a = audio ?: return mapOf("vol" to null)
+        return mapOf(
+            "vol" to a.getStreamVolume(AudioManager.STREAM_MUSIC),
+            "max" to a.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
+            "muted" to a.isStreamMute(AudioManager.STREAM_MUSIC),
+        )
+    }
 
     init {
         startRemote()
@@ -756,6 +805,67 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
         override fun newId() = Repository.newSourceId()
         override fun nextColor() = repo.nextColor()
+
+        override fun nowPlaying(): Map<String, Any?> {
+            val ch = currentChannel
+            if (screen == Screen.Player && ch != null) {
+                val pb = playback
+                val t = System.currentTimeMillis()
+                val cur = epg.current(ch, t)
+                return linkedMapOf(
+                    "screen" to "player", "title" to ch.name,
+                    "subtitle" to if (pb.vod) ch.group else (cur?.title ?: ch.group),
+                    "logo" to logoOf(ch), "live" to !pb.vod,
+                    "pos" to pb.posMs, "dur" to pb.durMs, "playing" to pb.playing,
+                    "progStart" to cur?.startMs, "progEnd" to cur?.endMs,
+                    "volume" to volumeState(),
+                )
+            }
+            val (title, sub) = when (screen) {
+                Screen.Home -> (activeSource?.name ?: "TvKutu") to "Ana ekran · ${groupLabel(selectedGroup)}"
+                Screen.Accounts -> "Hesap Seç" to "TV'de hesap seçme ekranı"
+                Screen.Setup -> "Ayarlar" to "TV'de ayarlar açık"
+                Screen.QrSetup -> "Telefondan yönet" to "TV'de karekod ekranı"
+                Screen.Player -> "TvKutu" to ""
+            }
+            return linkedMapOf("screen" to screen.name.lowercase(), "title" to title, "subtitle" to sub, "volume" to volumeState())
+        }
+
+        override fun remoteKey(name: String) {
+            val inPlayer = screen == Screen.Player
+            when (name) {
+                "home" -> goHome()
+                "back" -> _remoteKeys.tryEmit(KeyEvent.KEYCODE_BACK)
+                "play" -> if (inPlayer) _playerCommands.tryEmit(PlayerCommand.Toggle) else _remoteKeys.tryEmit(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                "chup" -> if (inPlayer) _playerCommands.tryEmit(PlayerCommand.Prev) else _remoteKeys.tryEmit(KeyEvent.KEYCODE_DPAD_UP)
+                "chdown" -> if (inPlayer) _playerCommands.tryEmit(PlayerCommand.Next) else _remoteKeys.tryEmit(KeyEvent.KEYCODE_DPAD_DOWN)
+                "up" -> _remoteKeys.tryEmit(KeyEvent.KEYCODE_DPAD_UP)
+                "down" -> _remoteKeys.tryEmit(KeyEvent.KEYCODE_DPAD_DOWN)
+                "left" -> _remoteKeys.tryEmit(KeyEvent.KEYCODE_DPAD_LEFT)
+                "right" -> _remoteKeys.tryEmit(KeyEvent.KEYCODE_DPAD_RIGHT)
+                "ok" -> _remoteKeys.tryEmit(KeyEvent.KEYCODE_DPAD_CENTER)
+                "menu" -> _remoteKeys.tryEmit(KeyEvent.KEYCODE_MENU)
+            }
+        }
+
+        override fun seek(byMs: Long?, toMs: Long?) {
+            if (screen != Screen.Player) return
+            if (toMs != null) _playerCommands.tryEmit(PlayerCommand.SeekTo(toMs))
+            else if (byMs != null) _playerCommands.tryEmit(PlayerCommand.SeekBy(byMs))
+        }
+
+        override fun volume(step: Int): Map<String, Any?> {
+            audio?.adjustStreamVolume(
+                AudioManager.STREAM_MUSIC,
+                when (step) {
+                    1 -> AudioManager.ADJUST_RAISE
+                    -1 -> AudioManager.ADJUST_LOWER
+                    else -> AudioManager.ADJUST_TOGGLE_MUTE
+                },
+                AudioManager.FLAG_SHOW_UI,
+            )
+            return volumeState()
+        }
     }
 
     companion object {

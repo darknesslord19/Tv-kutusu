@@ -44,6 +44,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,6 +84,8 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.tvkutu.app.AppViewModel
+import com.tvkutu.app.PlaybackInfo
+import com.tvkutu.app.PlayerCommand
 import com.tvkutu.app.data.Channel
 import com.tvkutu.app.data.Repository
 import com.tvkutu.app.data.WatchProgress
@@ -259,6 +262,7 @@ fun PlayerScreen(vm: AppViewModel) {
             posMs = if (seekTarget[0] >= 0 && SystemClock.uptimeMillis() - seekTarget[1] < 800) seekTarget[0] else player.currentPosition
             durMs = knownDuration()
             bufMs = player.bufferedPosition
+            vm.reportPlayback(PlaybackInfo(posMs, durMs, player.isPlaying, vod))
             if (++tick % 30 == 0) saveProgressNow() // ~15 sn
         }
     }
@@ -331,6 +335,18 @@ fun PlayerScreen(vm: AppViewModel) {
             player.release()
         }
     }
+
+    // Telefon kumandasından gelen oynatıcı komutları.
+    val onCommand by rememberUpdatedState<(PlayerCommand) -> Unit> { cmd ->
+        when (cmd) {
+            is PlayerCommand.SeekBy -> { seekBy(cmd.ms); if (overlay == Overlay.None) showBanner() }
+            is PlayerCommand.SeekTo -> { seekTo(cmd.ms); if (overlay == Overlay.None) showBanner() }
+            PlayerCommand.Toggle -> { togglePlay(); if (overlay == Overlay.None) showBanner() }
+            PlayerCommand.Prev -> switchBy(-1)
+            PlayerCommand.Next -> switchBy(+1)
+        }
+    }
+    LaunchedEffect(Unit) { vm.playerCommands.collect { onCommand(it) } }
 
     // Panel kapanınca odağı köke geri ver ki tuşlar çalışsın.
     LaunchedEffect(overlay) {

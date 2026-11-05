@@ -49,6 +49,30 @@ class FakeOps(pin: String? = null) : RemoteOps {
         if (replace) active = list.firstOrNull()?.id
         settingsApplied = settings
     }
+    val keys = mutableListOf<String>()
+    var seekBy: Long? = null
+    var seekTo: Long? = null
+    var vol = 7
+    var muted = false
+    var npLive = true
+    var npPos = 2_610_000L
+    var npPlaying = true
+    override fun nowPlaying(): Map<String, Any?> = mapOf(
+        "screen" to "player", "title" to if (npLive) "TRT 1 HD" else "Kuzey Rüzgârı",
+        "subtitle" to if (npLive) "Ana Haber" else "Belgesel", "logo" to null, "live" to npLive,
+        "pos" to npPos, "dur" to 5_400_000L, "playing" to npPlaying,
+        "progStart" to System.currentTimeMillis() - 50 * 60_000L, "progEnd" to System.currentTimeMillis() + 10 * 60_000L,
+        "volume" to mapOf("vol" to vol, "max" to 15, "muted" to muted),
+    )
+    override fun remoteKey(name: String) { keys += name; if (name == "play") npPlaying = !npPlaying }
+    override fun seek(byMs: Long?, toMs: Long?) {
+        seekBy = byMs; seekTo = toMs
+        npPos = toMs ?: (npPos + (byMs ?: 0))
+    }
+    override fun volume(step: Int): Map<String, Any?> {
+        when (step) { 1 -> vol++; -1 -> vol--; else -> muted = !muted }
+        return mapOf("vol" to vol, "max" to 15, "muted" to muted)
+    }
     override fun newId() = "n${++n}"
     override fun nextColor() = "#0F4A4A"
 }

@@ -136,4 +136,24 @@ class RemoteApiTest {
         assertEquals(true, api.handle("backup", emptyMap())["needPin"])
         assertNull(api.handle("backup", mapOf("pin" to "4321"))["error"])
     }
+
+    @Test
+    fun remoteKeysSeekAndVolume() {
+        val ops = FakeOps()
+        val api = RemoteApi(ops)
+        assertEquals(true, api.handle("key", mapOf("k" to "ok"))["ok"])
+        assertEquals(true, api.handle("key", mapOf("k" to "chup"))["ok"])
+        assertTrue(api.handle("key", mapOf("k" to "power"))["error"] != null)
+        assertEquals(listOf("ok", "chup"), ops.keys)
+
+        api.handle("seek", mapOf("by" to -10_000L))
+        assertEquals(-10_000L, ops.seekBy)
+        api.handle("seek", mapOf("to" to 4_350_000.0))
+        assertEquals(4_350_000L, ops.seekTo)
+        assertTrue(api.handle("seek", emptyMap())["error"] != null)
+
+        assertEquals(8, api.handle("vol", mapOf("d" to 1L))["vol"])
+        assertEquals(true, api.handle("vol", mapOf("d" to 0L))["muted"])
+        assertEquals("TRT 1 HD", api.handle("now", emptyMap())["title"])
+    }
 }

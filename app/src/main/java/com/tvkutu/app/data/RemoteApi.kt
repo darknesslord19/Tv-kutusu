@@ -22,6 +22,16 @@ interface RemoteOps {
     fun restore(accounts: List<Source>, replace: Boolean, settings: Map<String, Any?>)
     fun newId(): String
     fun nextColor(): String
+
+    // ---- Kumanda ----
+    /** Şu an oynayan (ya da hangi ekranda olunduğu). */
+    fun nowPlaying(): Map<String, Any?>
+    /** Kumanda tuşu: [RemoteApi.KEYS] içinden. */
+    fun remoteKey(name: String)
+    /** Film/dizide sarma: göreli ([byMs]) ya da mutlak ([toMs]). */
+    fun seek(byMs: Long?, toMs: Long?)
+    /** Ses: +1 aç, -1 kıs, 0 sessiz aç/kapat. Güncel durumu döndürür. */
+    fun volume(step: Int): Map<String, Any?>
 }
 
 /**
@@ -43,6 +53,10 @@ class RemoteApi(private val ops: RemoteOps) {
         "play" -> play(body)
         "backup" -> backup(body)
         "restore" -> restore(body)
+        "now" -> ops.nowPlaying()
+        "key" -> key(body)
+        "seek" -> seek(body)
+        "vol" -> ops.volume(((body["d"] as? Number)?.toInt() ?: 0).coerceIn(-1, 1))
         else -> mapOf("error" to "Bilinmeyen işlem")
     }
 
@@ -166,7 +180,23 @@ class RemoteApi(private val ops: RemoteOps) {
         return ok("added" to fresh.size)
     }
 
+    private fun key(body: Map<String, Any?>): Map<String, Any?> {
+        val k = body["k"] as? String ?: return mapOf("error" to "Tuş yok")
+        if (k !in KEYS) return mapOf("error" to "Bilinmeyen tuş")
+        ops.remoteKey(k)
+        return ok()
+    }
+
+    private fun seek(body: Map<String, Any?>): Map<String, Any?> {
+        val by = (body["by"] as? Number)?.toLong()?.coerceIn(-6 * 3_600_000L, 6 * 3_600_000L)
+        val to = (body["to"] as? Number)?.toLong()?.coerceAtLeast(0)
+        if (by == null && to == null) return mapOf("error" to "Konum yok")
+        ops.seek(by, to)
+        return ok()
+    }
+
     companion object {
         const val SEARCH_LIMIT = 60
+        val KEYS = setOf("up", "down", "left", "right", "ok", "back", "home", "menu", "play", "chup", "chdown")
     }
 }
