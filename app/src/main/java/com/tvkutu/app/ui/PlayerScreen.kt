@@ -705,7 +705,7 @@ private fun RoundButton(
  */
 @Composable
 private fun SkipButton(size: Dp, forward: Boolean, onClick: () -> Unit) {
-    val icon = size * 0.7f
+    val icon = size * 0.82f
     Focusable(onClick = onClick, shape = CircleShape, focusedScale = 1.1f, modifier = Modifier.size(size)) { focused ->
         Box(
             Modifier.size(size)
@@ -718,16 +718,17 @@ private fun SkipButton(size: Dp, forward: Boolean, onClick: () -> Unit) {
                 val u = this.size.width / 48f
                 val c = Color.White
                 withTransform({ if (forward) scale(-1f, 1f, pivot = center) }) {
+                    // Merkez (24,26), yarıçap 17: tepeden saat yönünde 280°; ok ucu tepede, sola bakar.
                     drawArc(
-                        color = c, startAngle = -90f, sweepAngle = 300f, useCenter = false,
-                        topLeft = Offset(7f * u, 7f * u), size = Size(34f * u, 34f * u),
-                        style = Stroke(width = 3.2f * u, cap = StrokeCap.Round),
+                        color = c, startAngle = -90f, sweepAngle = 280f, useCenter = false,
+                        topLeft = Offset(7f * u, 9f * u), size = Size(34f * u, 34f * u),
+                        style = Stroke(width = 3f * u, cap = StrokeCap.Round),
                     )
                     drawPath(
                         Path().apply {
-                            moveTo(17f * u, 7f * u)
-                            lineTo(25.5f * u, 2.4f * u)
-                            lineTo(25.5f * u, 11.6f * u)
+                            moveTo(15.5f * u, 9f * u)
+                            lineTo(25f * u, 3.8f * u)
+                            lineTo(25f * u, 14.2f * u)
                             close()
                         },
                         color = c,
@@ -736,7 +737,9 @@ private fun SkipButton(size: Dp, forward: Boolean, onClick: () -> Unit) {
             }
             Text(
                 "10", color = Color.White, fontWeight = FontWeight.ExtraBold,
-                fontSize = (icon.value * 14f / 48f).sp, lineHeight = (icon.value * 14f / 48f).sp,
+                fontSize = (icon.value * 13f / 48f).sp, lineHeight = (icon.value * 13f / 48f).sp,
+                // Çemberin merkezi simgenin 2/48 altında.
+                modifier = Modifier.offset(y = icon * (2f / 48f)),
             )
         }
     }
