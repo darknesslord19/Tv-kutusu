@@ -4,6 +4,7 @@ import android.os.SystemClock
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -52,7 +53,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -560,12 +569,12 @@ private fun VodControls(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     PillButton("Baştan başla", tv) { onAction("restart") }
-                    RoundButton(if (tv) 64.dp else 52.dp, label = "10 saniye geri", glyph = "↺", small = "10") { onAction("back10") }
+                    SkipButton(if (tv) 68.dp else 52.dp, forward = false) { onAction("back10") }
                     RoundButton(
                         if (tv) 84.dp else 64.dp, label = if (isPlaying) "Duraklat" else "Oynat",
                         glyph = if (isPlaying) "❚❚" else "▶", white = true, modifier = Modifier.focusRequester(playFocus),
                     ) { onAction("pause") }
-                    RoundButton(if (tv) 64.dp else 52.dp, label = "10 saniye ileri", glyph = "↻", small = "10") { onAction("fwd10") }
+                    SkipButton(if (tv) 68.dp else 52.dp, forward = true) { onAction("fwd10") }
                     PillButton("Ses / Altyazı", tv) { onAction("tracks") }
                 }
             }
@@ -686,6 +695,49 @@ private fun RoundButton(
             if (small != null) {
                 Text(small, color = Color.White, fontSize = (size.value * 0.17f).sp, fontWeight = FontWeight.ExtraBold)
             }
+        }
+    }
+}
+
+/**
+ * 10 sn geri/ileri düğmesi: düğmenin ~%70'ini kaplayan dairesel ok, ok ucu tepede,
+ * "10" tam ortada. İleri simgesi geri simgesinin aynadaki görüntüsüdür.
+ */
+@Composable
+private fun SkipButton(size: Dp, forward: Boolean, onClick: () -> Unit) {
+    val icon = size * 0.7f
+    Focusable(onClick = onClick, shape = CircleShape, focusedScale = 1.1f, modifier = Modifier.size(size)) { focused ->
+        Box(
+            Modifier.size(size)
+                .background(Color(0x1FFFFFFF), CircleShape)
+                .then(if (focused) Modifier.border(4.dp, Palette.Accent, CircleShape) else Modifier)
+                .semantics { contentDescription = if (forward) "10 saniye ileri" else "10 saniye geri" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Canvas(Modifier.size(icon)) {
+                val u = this.size.width / 48f
+                val c = Color.White
+                withTransform({ if (forward) scale(-1f, 1f, pivot = center) }) {
+                    drawArc(
+                        color = c, startAngle = -90f, sweepAngle = 300f, useCenter = false,
+                        topLeft = Offset(7f * u, 7f * u), size = Size(34f * u, 34f * u),
+                        style = Stroke(width = 3.2f * u, cap = StrokeCap.Round),
+                    )
+                    drawPath(
+                        Path().apply {
+                            moveTo(17f * u, 7f * u)
+                            lineTo(25.5f * u, 2.4f * u)
+                            lineTo(25.5f * u, 11.6f * u)
+                            close()
+                        },
+                        color = c,
+                    )
+                }
+            }
+            Text(
+                "10", color = Color.White, fontWeight = FontWeight.ExtraBold,
+                fontSize = (icon.value * 14f / 48f).sp, lineHeight = (icon.value * 14f / 48f).sp,
+            )
         }
     }
 }

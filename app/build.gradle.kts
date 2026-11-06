@@ -12,8 +12,8 @@ android {
         applicationId = "com.tvkutu.app"
         minSdk = 24          // Android 7.0
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.8.0"
+        versionCode = 9
+        versionName = "0.8.1"
     }
 
     buildTypes {
