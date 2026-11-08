@@ -108,7 +108,7 @@ data class WatchProgress(val posMs: Long, val durMs: Long, val updatedMs: Long) 
 
     companion object {
         /** Bundan kısa izlenenler listeye girmez. */
-        const val MIN_WATCHED_MS = 60_000L
+        const val MIN_WATCHED_MS = 30_000L
         const val MAX_ITEMS = 60
 
         /** Sonuna bu kadar kala (ya da %95'ten sonra) "bitti" sayılır ve listeden çıkar. */
@@ -141,3 +141,9 @@ data class WatchProgress(val posMs: Long, val durMs: Long, val updatedMs: Long) 
         }
     }
 }
+
+/**
+ * Kaldığı yer kaydının anahtarı: hesap + kategori + ad. Linke bağlı değildir; sağlayıcılar
+ * film linklerine her yenilemede değişen anahtar eklese de kayıt kaybolmaz.
+ */
+fun Channel.progressKey(): String = "p:$sourceId/${group.trim()}|${name.trim()}"

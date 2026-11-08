@@ -22,6 +22,7 @@ import com.tvkutu.app.data.RemoteServer
 import com.tvkutu.app.data.Repository
 import com.tvkutu.app.data.Source
 import com.tvkutu.app.data.WatchProgress
+import com.tvkutu.app.data.progressKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -83,6 +84,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private var groupLabels: Map<String, String> = emptyMap()
     private var baseGroups: List<GroupItem> = emptyList()
     private var channelByKey: Map<String, Channel> = emptyMap()
+    /** Kaldığı yer anahtarı → kanal (eski, linke bağlı anahtarlar da dahil). */
+    private var channelByProgressKey: Map<String, Channel> = emptyMap()
     var epg by mutableStateOf(EpgIndex.EMPTY)
         private set
     var favorites by mutableStateOf(repo.favorites())
@@ -249,7 +252,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             ALL -> pl.channels
             FAVORITES -> pl.channels.filter { it.key in favorites }
             CONTINUE -> progress.entries.sortedByDescending { it.value.updatedMs }
-                .mapNotNull { channelByKey[it.key] }.filterNot { isChannelBlocked(it) }
+                .mapNotNull { channelByProgressKey[it.key] ?: channelByKey[it.key] }
+                .distinctBy { it.key }.filterNot { isChannelBlocked(it) }
             else -> groupIndex[group].orEmpty()
         }
     }
@@ -318,6 +322,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         playlist = pl
         if (pl == null) {
             groupIndex = emptyMap(); groupLabels = emptyMap(); baseGroups = emptyList(); channelByKey = emptyMap()
+            channelByProgressKey = emptyMap()
             return
         }
         val index = LinkedHashMap<String, MutableList<Channel>>()
@@ -334,6 +339,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         groupLabels = labels
         baseGroups = items
         channelByKey = pl.channels.associateBy { it.key }
+        channelByProgressKey = HashMap<String, Channel>().also { m -> pl.channels.forEach { m.putIfAbsent(it.progressKey(), it) } }
         if (selectedGroup != ALL && selectedGroup != FAVORITES && selectedGroup != CONTINUE && selectedGroup !in index) selectedGroup = ALL
     }
 
@@ -630,7 +636,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             requestPin("Kategori kilitli", channel.group) { play(channel) }
             return
         }
-        val saved = progress[channel.key]
+        val saved = progressOf(channel)
         if (saved != null && playerMode != PLAYER_EXTERNAL) {
             resumeRequest = ResumeRequest(channel, saved)
             return
@@ -657,7 +663,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun removeFromContinue(channel: Channel) {
         val id = activeId ?: return
-        progress = repo.removeProgress(id, channel.key)
+        progress = repo.removeProgress(id, channel.progressKey()).let { m ->
+            if (channel.key in m) repo.removeProgress(id, channel.key) else m
+        }
         if (resumeRequest?.channel?.key == channel.key) resumeRequest = null
         if (selectedGroup == CONTINUE && progress.isEmpty()) selectedGroup = ALL
     }
@@ -665,14 +673,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Oynatıcı bir kez çağırır: başlangıç konumu (ms). */
     fun takeStartPosition(): Long = pendingStartMs.also { pendingStartMs = 0L }
 
-    fun progressOf(ch: Channel): WatchProgress? = progress[ch.key]
+    fun progressOf(ch: Channel): WatchProgress? = progress[ch.progressKey()] ?: progress[ch.key]
 
     /** Oynatıcıdan: film/dizi konumunu kaydet (canlı yayınlar için çağrılmaz). */
-    fun updateProgress(ch: Channel, posMs: Long, durMs: Long) {
+    fun updateProgress(ch: Channel, posMs: Long, durMs: Long, announce: Boolean = false) {
         val id = activeId ?: return
         if (ch.sourceId != id) return
         if (!WatchProgress.shouldKeep(posMs, durMs) && !WatchProgress.isFinished(posMs, durMs)) return
-        progress = repo.saveProgress(id, ch.key, posMs, durMs)
+        // Eski (linke bağlı) kaydı yeni anahtara taşı.
+        if (ch.key in progress) repo.removeProgress(id, ch.key)
+        progress = repo.saveProgress(id, ch.progressKey(), posMs, durMs)
+        if (announce) {
+            message = if (WatchProgress.shouldKeep(posMs, durMs)) "Kaldığın yer kaydedildi: ${ch.name} · ${WatchProgress.clock(posMs)}"
+            else "${ch.name} bitti, Devam et listesinden çıkarıldı"
+        }
     }
 
     /** Kanalı cihazdaki başka bir oynatıcıda (VLC, MX Player…) açar. */
@@ -710,7 +724,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun switchTo(channel: Channel) {
         if (isChannelBlocked(channel)) return
-        pendingStartMs = progress[channel.key]?.posMs ?: 0L
+        pendingStartMs = progressOf(channel)?.posMs ?: 0L
         currentChannel = channel
         activeId?.let { repo.setLastChannel(it, channel.key) }
     }
@@ -780,7 +794,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val ch = channelByKey[key] ?: return
             pinRequest = null
             if (selectedGroup != FAVORITES || ch.key !in favorites) selectedGroup = groupIdOf(ch)
-            startPlayback(ch, progress[ch.key]?.posMs ?: 0L)
+            startPlayback(ch, progressOf(ch)?.posMs ?: 0L)
         }
 
         override fun settingsForBackup(): Map<String, Any?> = mapOf(

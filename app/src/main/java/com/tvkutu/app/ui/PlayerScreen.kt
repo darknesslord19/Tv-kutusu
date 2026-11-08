@@ -146,6 +146,8 @@ fun PlayerScreen(vm: AppViewModel) {
     var lastInput by remember { mutableLongStateOf(SystemClock.uptimeMillis()) }
     val seekTarget = remember { longArrayOf(-1L, 0L) } // hedef, zaman
     val playingRef = remember { arrayOfNulls<Channel>(1) }
+    /** Kaldığı yerden başlatma hedefi; oynatma o konuma ulaşana kadar (yeniden denemeler dahil) korunur. */
+    val startTarget = remember { longArrayOf(0L) }
 
     val rootFocus = remember { FocusRequester() }
 
@@ -160,10 +162,17 @@ fun PlayerScreen(vm: AppViewModel) {
         vod = !player.isCurrentMediaItemLive && player.isCurrentMediaItemSeekable && knownDuration() > 0
     }
 
-    fun saveProgressNow() {
+    /** Şu anki gerçek konum; başlangıç hedefine henüz ulaşılmadıysa hedef. */
+    fun effectivePosition(): Long {
+        val t = startTarget[0]
+        val p = player.currentPosition
+        return if (t > 0 && p < t - 5_000) t else p
+    }
+
+    fun saveProgressNow(announce: Boolean = false) {
         val ch = playingRef[0] ?: return
         val d = knownDuration()
-        if (vod && d > 0) vm.updateProgress(ch, player.currentPosition, d)
+        if (vod && d > 0) vm.updateProgress(ch, effectivePosition(), d, announce)
     }
 
     fun prepare(ch: Channel, hls: Boolean, startMs: Long = 0L) {
@@ -259,7 +268,8 @@ fun PlayerScreen(vm: AppViewModel) {
         forceHls = false
         status = null
         buffering = true
-        prepare(channel, hls = false, startMs = vm.takeStartPosition())
+        startTarget[0] = vm.takeStartPosition()
+        prepare(channel, hls = false, startMs = startTarget[0])
         showBanner()
     }
 
@@ -272,7 +282,9 @@ fun PlayerScreen(vm: AppViewModel) {
             durMs = knownDuration()
             bufMs = player.bufferedPosition
             vm.reportPlayback(PlaybackInfo(posMs, durMs, player.isPlaying, vod))
-            if (++tick % 30 == 0) saveProgressNow() // ~15 sn
+            // Hedefe ulaşıldıysa unut (sonraki kayıtlar gerçek konumu kullansın).
+            if (startTarget[0] > 0 && player.playbackState == Player.STATE_READY && player.currentPosition >= startTarget[0] - 5_000) startTarget[0] = 0
+            if (++tick % 10 == 0) saveProgressNow() // ~5 sn
         }
     }
 
@@ -285,6 +297,11 @@ fun PlayerScreen(vm: AppViewModel) {
                     retries = 0
                     tech = describe(player, sourceKind)
                     updateVod()
+                    // Bazı kaynaklar başlangıç konumunu yok sayar: hazır olunca hedefe sar.
+                    val t = startTarget[0]
+                    if (t > 0 && player.isCurrentMediaItemSeekable && abs(player.currentPosition - t) > 5_000) {
+                        player.seekTo(t)
+                    }
                 }
                 if (state == Player.STATE_ENDED) {
                     val ch = playingRef[0]
@@ -313,7 +330,7 @@ fun PlayerScreen(vm: AppViewModel) {
 
             override fun onPlayerError(error: PlaybackException) {
                 val ch = vm.currentChannel ?: return
-                val resumeAt = if (vod) player.currentPosition else 0L
+                val resumeAt = if (vod) effectivePosition() else startTarget[0]
                 when {
                     error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW -> {
                         player.seekToDefaultPosition()
@@ -339,7 +356,7 @@ fun PlayerScreen(vm: AppViewModel) {
         }
         player.addListener(listener)
         onDispose {
-            saveProgressNow()
+            saveProgressNow(announce = true)
             player.removeListener(listener)
             player.release()
         }
