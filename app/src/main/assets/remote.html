@@ -234,7 +234,7 @@ nav.tabs button[aria-current="page"]{color:var(--acc)}
     <p class="hint" style="margin:0">Hesaplarını başka bir TV kutusuna taşımak için: bu TV'den yedeği indir, yeni TV'nin karekodunu okut ve yedeği orada yükle.</p>
     <div class="card">
       <h2>Yedeği indir</h2>
-      <p>Tüm hesaplar (linkler, renkler, EPG, kilit) ve görünüm ayarları tek bir dosyada.</p>
+      <p>Hesaplar (linkler, renkler, EPG, kilit), favoriler, kaldığın yerler, kilitli kategoriler ve görünüm ayarları tek bir dosyada. PIN yedeğe girmez.</p>
       <button class="btn wide" id="bDownload" type="button">Yedeği indir (.json)</button>
       <button class="btn wide" id="bCopy" type="button">Panoya kopyala</button>
     </div>
@@ -546,7 +546,7 @@ nav.tabs button[aria-current="page"]{color:var(--acc)}
     withPin('restore', { backup: data, mode: mode }, 'Yedek için PIN').then(function(res){
       if (res.cancelled) return;
       if (res.error) { toast(res.error, true); return; }
-      toast((res.added || 0) + ' hesap yüklendi');
+      toast('Yedek yüklendi · ' + (res.added || 0) + ' yeni hesap');
       loadState();
     }).catch(function(){ toast('TV\'ye ulaşılamadı', true); });
   }

@@ -1,5 +1,12 @@
 package com.tvkutu.app.ui
 
+import com.tvkutu.app.data.BackupFiles
+import com.tvkutu.app.data.BackupEntry
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
+import android.content.ActivityNotFoundException
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -74,6 +81,63 @@ fun SetupScreen(vm: AppViewModel) {
         unfocusedPlaceholderColor = Palette.TextDim,
         cursorColor = Palette.Accent,
     )
+
+    // ---- Yedekleme durumu ----
+    val context = LocalContext.current
+    var restoreReplace by remember { mutableStateOf(false) }
+    var backupMsg by remember { mutableStateOf<String?>(null) }
+    var backupErr by remember { mutableStateOf(false) }
+    var backupList by remember { mutableStateOf<List<BackupEntry>?>(null) }
+    var confirmEntry by remember { mutableStateOf<BackupEntry?>(null) }
+
+    fun report(text: String, error: Boolean = false) { backupMsg = text; backupErr = error }
+
+    fun doRestore(read: () -> String) {
+        try {
+            report(vm.restoreBackupText(read(), restoreReplace))
+            backupList = null
+        } catch (e: Exception) {
+            report(e.message ?: "Yedek yüklenemedi", error = true)
+        }
+    }
+
+    val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) {
+            runCatching { BackupFiles.writeTo(context, uri, vm.backupJson()) }
+                .onSuccess { report("Yedek kaydedildi") }
+                .onFailure { report("Kaydedilemedi: ${it.message}", error = true) }
+        }
+    }
+    val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) doRestore { BackupFiles.readFrom(context, uri) }
+    }
+
+    fun saveBackup() = vm.withPin("Yedek", "Yedek almak için PIN'i gir") {
+        try {
+            saveLauncher.launch(BackupFiles.fileName())
+        } catch (e: ActivityNotFoundException) {
+            // Dosya seçici yok (bazı TV kutuları): İndirilenler klasörüne yaz.
+            runCatching { BackupFiles.saveToDownloads(context, vm.backupJson()) }
+                .onSuccess { report("Yedek kaydedildi: $it") }
+                .onFailure { report("Kaydedilemedi: ${it.message}", error = true) }
+        }
+    }
+
+    fun openRestore() = vm.withPin("Geri yükle", "Geri yüklemek için PIN'i gir") {
+        backupList = runCatching { BackupFiles.list(context, vm.repo) }.getOrDefault(emptyList())
+    }
+
+    fun pickFile() {
+        try {
+            openLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+        } catch (e: ActivityNotFoundException) {
+            report("Bu cihazda dosya seçici yok. Listeden bir yedek seç ya da telefondan yükle.", error = true)
+        }
+    }
+
+    fun chooseEntry(e: BackupEntry) {
+        if (restoreReplace) confirmEntry = e else doRestore(e.read)
+    }
 
     fun addNew() {
         error = vm.addAccountManual(newName, newUrl, newEpg)
@@ -246,6 +310,79 @@ fun SetupScreen(vm: AppViewModel) {
                     ) {
                         lockable.forEach { g ->
                             Chip((if (g.locked) "🔒 " else "") + g.label, selected = g.locked) { vm.toggleGroupLock(g.id) }
+                        }
+                    }
+                }
+
+                // ---- Yedekleme ----
+                Section("Yedekleme")
+                Text(
+                    "Hesaplar, favoriler, kaldığın yerler, kilitli kategoriler ve görünüm ayarları tek dosyada. PIN yedeğe girmez. " +
+                        "Hesaplar değiştikçe cihazın içine otomatik yedek de alınır (son 5).",
+                    color = Palette.TextDim, fontSize = 15.sp,
+                )
+                Spacer(Modifier.height(14.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    TvButton("⤓ Yedeği kaydet", primary = true, onClick = { saveBackup() })
+                    TvButton("⤒ Geri yükle", onClick = { openRestore() })
+                }
+                backupMsg?.let {
+                    Spacer(Modifier.height(10.dp))
+                    Text(it, color = if (backupErr) Palette.Danger else Palette.Accent, fontSize = 14.sp)
+                }
+                backupList?.let { list ->
+                    Spacer(Modifier.height(16.dp))
+                    Text("Geri yükleme biçimi:", color = Palette.TextDim, fontSize = 15.sp)
+                    Spacer(Modifier.height(10.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Chip("Hesaplarıma ekle", selected = !restoreReplace) { restoreReplace = false }
+                        Chip("Hepsini değiştir", selected = restoreReplace) { restoreReplace = true }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    if (list.isEmpty()) {
+                        Text("Cihazda kayıtlı yedek bulunamadı.", color = Palette.TextDim, fontSize = 14.sp)
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    list.take(12).forEach { e ->
+                        Focusable(
+                            onClick = { chooseEntry(e) },
+                            shape = RoundedCornerShape(12.dp),
+                            focusedScale = 1.02f,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        ) { focused ->
+                            Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(e.label, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text("${formatDateTime(e.timeMs)} · ${e.detail}", color = Palette.TextDim, fontSize = 13.sp)
+                                }
+                                Text("Yükle", color = if (focused) Palette.Accent else Palette.TextDim, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        TvButton("Dosya seç…", onClick = { pickFile() })
+                        TvButton("Vazgeç", onClick = { backupList = null })
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Başka bir cihazdaki yedeği yüklemek için telefon sayfasındaki Yedek sekmesini de kullanabilirsin.",
+                        color = Palette.TextDim, fontSize = 13.sp,
+                    )
+                }
+                confirmEntry?.let { e ->
+                    Spacer(Modifier.height(12.dp))
+                    Column(
+                        Modifier.fillMaxWidth().background(Color(0xFF2C1B1D), RoundedCornerShape(12.dp)).padding(16.dp),
+                    ) {
+                        Text("Bu cihazdaki tüm hesaplar yedektekilerle değiştirilsin mi?", color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            TvButton("Evet, değiştir", primary = true, onClick = { confirmEntry = null; doRestore(e.read) })
+                            TvButton("Vazgeç", onClick = { confirmEntry = null })
                         }
                     }
                 }

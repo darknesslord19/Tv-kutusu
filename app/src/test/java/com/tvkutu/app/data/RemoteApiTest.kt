@@ -127,7 +127,8 @@ class RemoteApiTest {
         assertEquals(listOf("DARKNES TV", "DARKNES TV-1"), dst.list.map { it.name })
 
         assertTrue(api.handle("restore", mapOf("backup" to mapOf("app" to "Baska")))["error"] != null)
-        assertTrue(api.handle("restore", mapOf("backup" to restored, "mode" to "merge"))["error"] != null)
+        // Hesaplar zaten ekli ama favori var: hata değil, veriler birleştirilir.
+        assertEquals(0, api.handle("restore", mapOf("backup" to restored, "mode" to "merge"))["added"])
     }
 
     @Test

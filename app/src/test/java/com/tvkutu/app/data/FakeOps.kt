@@ -43,11 +43,15 @@ class FakeOps(pin: String? = null) : RemoteOps {
     override fun channelLocked(key: String) = channels.firstOrNull { it["key"] == key }?.get("locked") as Boolean?
     override fun play(key: String) { played = key }
     override fun settingsForBackup() = mapOf("posterMode" to "auto")
-    override fun restore(accounts: List<Source>, replace: Boolean, settings: Map<String, Any?>) {
+    var extras = Backup.Extras(favorites = setOf("a1/id:trt1"))
+    var restoredExtras: Backup.Extras? = null
+    override fun backupExtras() = extras
+    override fun restore(plan: Backup.Plan, replace: Boolean) {
         if (replace) list.clear()
-        list.addAll(accounts)
+        list.addAll(plan.newSources)
         if (replace) active = list.firstOrNull()?.id
-        settingsApplied = settings
+        settingsApplied = plan.settings
+        restoredExtras = plan.extras
     }
     val keys = mutableListOf<String>()
     var seekBy: Long? = null

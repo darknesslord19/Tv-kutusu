@@ -114,3 +114,8 @@ fun formatTime(ms: Long): String {
     val f = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
     return f.format(java.util.Date(ms))
 }
+
+fun formatDateTime(ms: Long): String {
+    val f = java.text.SimpleDateFormat("d MMM yyyy HH:mm", java.util.Locale("tr"))
+    return f.format(java.util.Date(ms))
+}

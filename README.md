@@ -10,14 +10,14 @@ Kumandayla kullanılan, sade ve hızlı bir IPTV oynatıcı. Kendi m3u/m3u8 list
 
 Her `main` dalına gönderilen değişiklikte GitHub Actions APK'yı otomatik derler ve yeni bir sürüm (Release) olarak yayınlar.
 
-## Özellikler (v0.8)
+## Özellikler (v0.9)
 
 - **Kumanda için tasarlandı:** her ekran ok tuşları, OK ve Geri ile çalışır.
 - **Hesaplar:** her playlist linki ayrı bir hesap (renkli kutucuk). TV son açılan hesapla başlar; üst çubuktaki hesap adına basınca "Hesap Seç" ekranı açılır. Favoriler, son kanal ve EPG her hesapta ayrı.
 - **Hesap durumu:** kutucukta kanal sayısı ya da kırmızı "Bağlanamadı" (abonelik bitmiş, sunucu kapalı).
 - **Ebeveyn kilidi:** 4 haneli PIN ile hesap ve kategori kilitleme; uygulama arka plana gidince kilit yeniden devreye girer.
 - **Telefon kumandası:** TV'deki karekodu okut; telefonda gerçek kumanda (yön tuşları + OK, kanal ▲▼, ses +/−/sessiz, geri, ana ekran, menü, ⏯, ±10 sn, şu an oynayan ve dokunarak sarma), Hesap Seç (seç, ekle, düzenle, sil), kanal arama ("TV'de aç") ve yedek. Adres kalıcıdır, yer imlerine eklenebilir.
-- **Yedek ve taşıma:** telefondan yedeği indir (.json), yeni TV'nin karekodunu okutup yedeği yükle (ekle ya da hepsini değiştir).
+- **Yedek ve geri yükleme:** Ayarlar › Yedekleme ya da telefon sayfası. Hesaplar, favoriler, kaldığın yerler, kilitli kategoriler ve görünüm ayarları tek dosyada (PIN hariç). Dosya seçici olmayan kutularda İndirilenler/TvKutu klasörüne kaydedilir; ayrıca cihazın içinde son 5 otomatik yedek tutulur. "Hesaplarıma ekle" ya da "Hepsini değiştir".
 - **Afiş kartları:** film ve dizi kategorilerinde afiş kartı tamamen doldurur (otomatik algılama, ya da hep afiş / hep logo). Ad afişin üstünde ya da altında. TV'de solda kategoriler, sağda afiş ızgarası; kumandanın üzerindeki afiş büyür ve adını gösterir.
 - **Kategori satırları:** "Tüm kanallar" seçiliyken her kategori yatay kayan bir satır olarak listelenir ("Tümü" ile kategoriye geçilir).
 - **Kanal ızgarası:** logo, şu anki program ve ilerleme çubuğu; kategoriler listedeki sırayla.

@@ -19,7 +19,10 @@ interface RemoteOps {
     fun channelLocked(key: String): Boolean?
     fun play(key: String)
     fun settingsForBackup(): Map<String, Any?>
-    fun restore(accounts: List<Source>, replace: Boolean, settings: Map<String, Any?>)
+    /** Favoriler, kaldığın yerler, kilitli kategoriler, son kanallar. */
+    fun backupExtras(): Backup.Extras
+    /** Geri yükleme planını uygular. */
+    fun restore(plan: Backup.Plan, replace: Boolean)
     fun newId(): String
     fun nextColor(): String
 
@@ -154,30 +157,21 @@ class RemoteApi(private val ops: RemoteOps) {
 
     private fun backup(body: Map<String, Any?>): Map<String, Any?> {
         pinGate(true, body)?.let { return it }
-        return ok("backup" to Backup.build(ops.accounts(), ops.settingsForBackup()))
+        return ok("backup" to Backup.build(ops.accounts(), ops.settingsForBackup(), ops.backupExtras()))
     }
 
     private fun restore(body: Map<String, Any?>): Map<String, Any?> {
         pinGate(true, body)?.let { return it }
-        val (parsed, settings) = try {
+        val data = try {
             Backup.parse(body["backup"])
         } catch (e: IllegalArgumentException) {
             return mapOf("error" to (e.message ?: "Geçersiz yedek"))
         }
         val replace = body["mode"] == "replace"
-        val existing = if (replace) emptyList() else ops.accounts()
-        val usedColors = existing.map { it.color }.toMutableSet()
-        val fresh = parsed.filter { p -> existing.none { it.url == p.url } }
-            .take((Backup.MAX_ACCOUNTS - existing.size).coerceAtLeast(0))
-            .map { p ->
-                val color = p.color.ifEmpty { Source.COLORS.firstOrNull { it !in usedColors } ?: Source.COLORS[0] }
-                usedColors += color
-                Source(id = ops.newId(), name = p.name.ifEmpty { "Hesap" }, url = p.url, color = color, epg = p.epg,
-                    locked = p.locked && ops.hasPin())
-            }
-        if (fresh.isEmpty() && !replace) return mapOf("error" to "Yedekteki hesapların hepsi zaten ekli.")
-        ops.restore(fresh, replace, settings)
-        return ok("added" to fresh.size)
+        val plan = Backup.plan(data, ops.accounts(), replace, ops.hasPin()) { ops.newId() }
+        if (plan.added == 0 && !replace && plan.extras.isEmpty) return mapOf("error" to "Yedekteki hesapların hepsi zaten ekli.")
+        ops.restore(plan, replace)
+        return ok("added" to plan.added)
     }
 
     private fun key(body: Map<String, Any?>): Map<String, Any?> {

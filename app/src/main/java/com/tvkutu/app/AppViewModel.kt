@@ -13,7 +13,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.tvkutu.app.data.Backup
 import com.tvkutu.app.data.Channel
+import com.tvkutu.app.data.Json
 import com.tvkutu.app.data.EpgIndex
 import com.tvkutu.app.data.Playlist
 import com.tvkutu.app.data.RemoteApi
@@ -213,6 +215,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             else -> Screen.Home
         }
         if (screen == Screen.Home) start()
+        autoBackup()
     }
 
     override fun onCleared() {
@@ -460,6 +463,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun saveSources(list: List<Source>) {
         repo.sources = list
         sources = repo.sources
+        autoBackup()
     }
 
     /** Ekler ya da günceller; aktif hesabın linki değiştiyse yeniden yükler. */
@@ -742,6 +746,75 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         message = null
     }
 
+    // ---- Yedekleme ----
+    private fun backupSettings(): Map<String, Any?> = mapOf(
+        "posterMode" to posterMode, "posterTitle" to posterTitle, "playerMode" to playerMode,
+        "streamFormat" to streamFormat, "updateHours" to updateHours,
+    )
+
+    fun backupExtras(): Backup.Extras = Backup.Extras(
+        favorites = repo.favorites(),
+        lockedGroups = repo.lockedGroups,
+        progress = sources.associate { it.id to repo.progress(it.id) }.filterValues { it.isNotEmpty() },
+        lastChannels = sources.mapNotNull { s -> repo.lastChannel(s.id)?.let { s.id to it } }.toMap(),
+    )
+
+    /** Tam yedek (JSON metni). */
+    fun backupJson(): String = Json.write(Backup.build(sources, backupSettings(), backupExtras()))
+
+    /** Yedek metnini geri yükler; sonucu anlatan bir cümle döndürür. Geçersizse IllegalArgumentException. */
+    fun restoreBackupText(text: String, replace: Boolean): String {
+        val data = Backup.parse(runCatching { Json.parse(text) }.getOrElse { throw IllegalArgumentException("Dosya okunamadı: geçerli bir yedek değil") })
+        val plan = Backup.plan(data, sources, replace, hasPin) { Repository.newSourceId() }
+        if (plan.added == 0 && !replace && plan.extras.isEmpty) return "Yedekteki hesapların hepsi zaten ekli."
+        applyRestore(plan, replace)
+        val x = plan.extras
+        return buildString {
+            append(if (replace) "Yedek yüklendi: ${plan.added} hesap" else "Yedek eklendi: ${plan.added} yeni hesap")
+            val parts = listOfNotNull(
+                x.favorites.size.takeIf { it > 0 }?.let { "$it favori" },
+                x.progress.values.sumOf { it.size }.takeIf { it > 0 }?.let { "$it kaldığın yer" },
+                x.lockedGroups.size.takeIf { it > 0 }?.let { "$it kilitli kategori" },
+            )
+            if (parts.isNotEmpty()) append(" · " + parts.joinToString(", "))
+        }
+    }
+
+    /** Planı uygular: hesaplar, ayarlar, favoriler, kilitler, kaldığın yerler, son kanallar. */
+    fun applyRestore(plan: Backup.Plan, replace: Boolean) {
+        val list = if (replace) plan.newSources else sources + plan.newSources
+        saveSources(list)
+        val st = plan.settings
+        (st["posterMode"] as? String)?.takeIf { it in setOf("auto", "always", "never") }?.let { setPosterModeOption(it) }
+        (st["posterTitle"] as? String)?.takeIf { it in setOf("overlay", "below") }?.let { setPosterTitleOption(it) }
+        (st["playerMode"] as? String)?.takeIf { it in setOf(PLAYER_INTERNAL, PLAYER_EXTERNAL) }?.let { setPlayer(it) }
+        (st["streamFormat"] as? String)?.takeIf { it in setOf("auto", "hls", "ts") }?.let { setFormat(it) }
+        (st["updateHours"] as? Number)?.toInt()?.takeIf { it in setOf(0, 6, 12, 24) }?.let { setUpdateInterval(it) }
+
+        val x = plan.extras
+        val favs = if (replace) x.favorites else repo.favorites() + x.favorites
+        repo.setFavorites(favs); favorites = favs
+        val locks = if (replace) x.lockedGroups else repo.lockedGroups + x.lockedGroups
+        repo.lockedGroups = locks; lockedGroups = locks
+        x.progress.forEach { (id, m) -> repo.mergeProgress(id, m) }
+        x.lastChannels.forEach { (id, key) -> if (replace || repo.lastChannel(id) == null) repo.setLastChannel(id, key) }
+        activeId?.let { progress = repo.progress(it) }
+
+        if (replace || activeSource == null) {
+            activeId = null
+            list.firstOrNull()?.let { openAccount(it.id, pinVerified = true) }
+        }
+        autoBackup()
+    }
+
+    /** Hesaplar değişince ya da günde bir kez cihazın içine otomatik yedek. */
+    fun autoBackup() {
+        if (sources.isEmpty()) return
+        val key = sources.joinToString("|") { "${it.id}:${it.url}:${it.name}:${it.locked}:${it.color}:${it.epg}" } +
+            "#" + favorites.size + "#" + lockedGroups.size
+        runCatching { repo.saveAutoBackup(backupJson(), key) }
+    }
+
     // ---- Telefon kumandasının TV tarafı (ana iş parçacığında çağrılır) ----
     private inner class RemoteBridge : RemoteOps {
         override fun accounts() = sources
@@ -797,24 +870,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             startPlayback(ch, progressOf(ch)?.posMs ?: 0L)
         }
 
-        override fun settingsForBackup(): Map<String, Any?> = mapOf(
-            "posterMode" to posterMode, "posterTitle" to posterTitle, "playerMode" to playerMode,
-            "streamFormat" to streamFormat, "updateHours" to updateHours,
-        )
+        override fun settingsForBackup(): Map<String, Any?> = backupSettings()
 
-        override fun restore(accounts: List<Source>, replace: Boolean, settings: Map<String, Any?>) {
-            val list = if (replace) accounts else sources + accounts
-            saveSources(list)
-            (settings["posterMode"] as? String)?.takeIf { it in setOf("auto", "always", "never") }?.let { setPosterModeOption(it) }
-            (settings["posterTitle"] as? String)?.takeIf { it in setOf("overlay", "below") }?.let { setPosterTitleOption(it) }
-            (settings["playerMode"] as? String)?.takeIf { it in setOf(PLAYER_INTERNAL, PLAYER_EXTERNAL) }?.let { setPlayer(it) }
-            (settings["streamFormat"] as? String)?.takeIf { it in setOf("auto", "hls", "ts") }?.let { setFormat(it) }
-            (settings["updateHours"] as? Number)?.toInt()?.takeIf { it in setOf(0, 6, 12, 24) }?.let { setUpdateInterval(it) }
-            if (replace || activeSource == null) {
-                activeId = null
-                list.firstOrNull()?.let { openAccount(it.id, pinVerified = true) }
-            }
-            message = "Telefondan: ${accounts.size} hesap yüklendi"
+        override fun backupExtras(): Backup.Extras = this@AppViewModel.backupExtras()
+
+        override fun restore(plan: Backup.Plan, replace: Boolean) {
+            applyRestore(plan, replace)
+            message = "Telefondan: yedek yüklendi (${plan.added} yeni hesap)"
         }
 
         override fun newId() = Repository.newSourceId()

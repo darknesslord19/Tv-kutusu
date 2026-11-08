@@ -171,6 +171,35 @@ class Repository(context: Context) {
         return trimmed.associate { it.key to it.value }
     }
 
+    fun setFavorites(set: Set<String>) = prefs.edit().putStringSet("favorites", set).apply()
+
+    /** Yedekten gelen ilerlemeyi birleştirir (aynı kayıtta yenisi kazanır). */
+    fun mergeProgress(accountId: String, incoming: Map<String, WatchProgress>): Map<String, WatchProgress> {
+        val map = progress(accountId).toMutableMap()
+        incoming.forEach { (k, w) -> if ((map[k]?.updatedMs ?: -1) < w.updatedMs) map[k] = w }
+        return writeProgress(accountId, map)
+    }
+
+    // ---- Otomatik yedekler (cihazın içinde, son 5) ----
+    private val backupDir get() = File(dir, "backups").apply { mkdirs() }
+
+    fun autoBackups(): List<File> =
+        backupDir.listFiles { f -> f.name.startsWith("auto-") && f.name.endsWith(".json") }
+            ?.sortedByDescending { it.name }.orEmpty()
+
+    /** İçerik son yedekten farklıysa yeni otomatik yedek yazar. */
+    fun saveAutoBackup(json: String, contentKey: String) {
+        val last = prefs.getString("auto_backup_key", null)
+        val lastMs = prefs.getLong("auto_backup_ms", 0L)
+        val now = System.currentTimeMillis()
+        if (last == contentKey && now - lastMs < 24 * HOUR) return
+        runCatching {
+            File(backupDir, "auto-$now.json").writeText(json)
+            autoBackups().drop(5).forEach { it.delete() }
+            prefs.edit().putString("auto_backup_key", contentKey).putLong("auto_backup_ms", now).apply()
+        }
+    }
+
     // ---- Ebeveyn kilidi ----
     val hasPin get() = prefs.contains("pin_hash")
 
