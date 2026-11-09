@@ -1,5 +1,7 @@
 package com.tvkutu.app.ui
 
+import androidx.compose.runtime.key
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.border
 import com.tvkutu.app.data.BackupFiles
@@ -69,8 +71,6 @@ fun SetupScreen(vm: AppViewModel) {
     val firstRun = !vm.setupFromSettings || vm.sources.isEmpty()
 
     BackHandler(enabled = vm.setupFromSettings && vm.activeSource != null) { vm.closeSettings() }
-    // Kumandayla en kolay yol telefondan kurulum: odağı oraya koy.
-    LaunchedEffect(Unit) { runCatching { qrFocus.requestFocus() } }
 
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedBorderColor = Palette.Accent,
@@ -146,397 +146,596 @@ fun SetupScreen(vm: AppViewModel) {
         if (error == null) { newName = ""; newUrl = ""; newEpg = "" }
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(Palette.Bg)) {
-        val wide = maxWidth >= 600.dp
-        Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                .padding(horizontal = if (wide) 64.dp else 20.dp, vertical = if (wide) 40.dp else 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+    var showAdd by remember { mutableStateOf(false) }
+    var cat by rememberSaveable { mutableStateOf("hes") }
+    var narrowOpen by rememberSaveable { mutableStateOf(false) }
+
+    @Composable
+    fun AddForm() {
+        OutlinedTextField(
+            value = newName,
+            onValueChange = { newName = it },
+            label = { Text("Hesap adı (isteğe bağlı)") },
+            singleLine = true,
+            colors = fieldColors,
+            shape = RoundedCornerShape(12.dp),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = newUrl,
+            onValueChange = { newUrl = it; error = null },
+            label = { Text("Playlist linki (m3u / m3u8)") },
+            placeholder = { Text("https://…/playlist.m3u") },
+            singleLine = true,
+            colors = fieldColors,
+            shape = RoundedCornerShape(12.dp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = newEpg,
+            onValueChange = { newEpg = it },
+            label = { Text("EPG linki (isteğe bağlı)") },
+            placeholder = { Text("Boş kalırsa listedeki url-tvg kullanılır") },
+            singleLine = true,
+            colors = fieldColors,
+            shape = RoundedCornerShape(12.dp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { addNew() }),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        (error ?: vm.loadError)?.let {
+            Spacer(Modifier.height(12.dp))
+            Text(it, color = Palette.Danger, fontSize = 14.sp)
+        }
+    }
+
+    @Composable
+    fun QrButton(modifier: Modifier = Modifier) {
+        Focusable(
+            onClick = { vm.openQrSetup() },
+            shape = RoundedCornerShape(50),
+            focusedScale = 1.03f,
+            selected = true,
+            modifier = modifier,
+        ) { focused ->
+            Row(Modifier.padding(horizontal = 22.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("📱", fontSize = 18.sp)
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    "Telefondan ekle (karekod)",
+                    color = if (focused) Palette.Accent else Palette.Text,
+                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+    }
+
+    @Composable
+    fun AccountList() {
+        vm.sources.forEach { a ->
+            val isActive = a.id == vm.activeId
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                    .background(Palette.Surface, RoundedCornerShape(14.dp))
+                    .then(if (isActive) Modifier.border(2.dp, Palette.Accent.copy(alpha = 0.6f), RoundedCornerShape(14.dp)) else Modifier)
+                    .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier.size(44.dp).background(parseHex(a.color), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(a.name.take(1).uppercase(), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            (if (a.locked && vm.hasPin) "🔒 " else "") + a.name,
+                            color = Palette.Text, fontSize = 17.sp, fontWeight = FontWeight.Bold,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (isActive) Text("  ● Açık", color = Palette.Accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Text(
+                        when {
+                            a.error.isNotEmpty() -> "Bağlanamadı: ${a.error}"
+                            a.count > 0 -> "${a.count} kanal"
+                            isActive -> "yükleniyor"
+                            else -> a.url
+                        },
+                        color = if (a.error.isNotEmpty()) Palette.Danger else Palette.TextDim,
+                        fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                if (!isActive) TvButton("Aç", onClick = { vm.openAccount(a.id) })
+                TvButton(if (a.locked && vm.hasPin) "Kilidi aç" else "Kilitle", onClick = { vm.toggleAccountLock(a.id) })
+                TvButton("Sil", onClick = { vm.deleteAccount(a.id) })
+            }
+        }
+    }
+
+    // ---- Kategori içerikleri ----
+
+    @Composable
+    fun AccountsPanel(wide: Boolean) {
+        AccountList()
+        Spacer(Modifier.height(6.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            TvButton("＋ Hesap ekle", primary = true, onClick = { error = null; showAdd = true })
+            QrButton()
+            if (vm.sources.isNotEmpty()) TvButton("Bağlantıları kontrol et", onClick = { vm.checkAll(force = true) })
+        }
+        Spacer(Modifier.height(20.dp))
+        SettingRow("Otomatik güncelleme", "Liste ve yayın akışı uygulama açıkken bu aralıkla yenilenir", wide) {
+            listOf(0 to "Kapalı", 6 to "6 sa", 12 to "12 sa", 24 to "24 sa").forEach { (h, label) ->
+                SegChip(label, vm.updateHours == h) { vm.setUpdateInterval(h) }
+            }
+        }
+    }
+
+    @Composable
+    fun AppearancePanel(wide: Boolean) {
+        Label("TEMA")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Themes.all.forEach { t -> ThemeCard(t, selected = vm.themeId == t.id) { vm.setTheme(t.id) } }
+        }
+        Spacer(Modifier.height(20.dp))
+        SettingRow("Kanal kartları", "Otomatik: filmler afiş, canlı TV logo", wide) {
+            listOf("auto" to "Otomatik", "always" to "Hep afiş", "never" to "Hep logo").forEach { (v, label) ->
+                SegChip(label, vm.posterMode == v) { vm.setPosterModeOption(v) }
+            }
+        }
+        if (vm.posterMode != "never") {
+            SettingRow("Afişte film adı", "TV'de ad, kumanda afişin üzerine gelince görünür", wide) {
+                SegChip("Afişin üstünde", vm.posterTitle == "overlay") { vm.setPosterTitleOption("overlay") }
+                SegChip("Afişin altında", vm.posterTitle == "below") { vm.setPosterTitleOption("below") }
+            }
+        }
+    }
+
+    @Composable
+    fun PlayerPanel(wide: Boolean) {
+        SettingRow("Oynatıcı", "Harici: VLC, MX Player gibi yüklü bir uygulama", wide) {
+            SegChip("Dahili", vm.playerMode == AppViewModel.PLAYER_INTERNAL) { vm.setPlayer(AppViewModel.PLAYER_INTERNAL) }
+            SegChip("Harici uygulama", vm.playerMode == AppViewModel.PLAYER_EXTERNAL) { vm.setPlayer(AppViewModel.PLAYER_EXTERNAL) }
+        }
+        if (vm.playerMode == AppViewModel.PLAYER_INTERNAL) {
+            SettingRow("Yayın biçimi", "Açılmayan kanallarda HLS ya da MPEG-TS'yi dene", wide) {
+                listOf("auto" to "Otomatik", "hls" to "HLS", "ts" to "MPEG-TS").forEach { (f, label) ->
+                    SegChip(label, vm.streamFormat == f) { vm.setFormat(f) }
+                }
+            }
+        }
+        Text(
+            if (vm.playerMode == AppViewModel.PLAYER_INTERNAL)
+                "Dahili oynatıcı: ses/altyazı seçimi, sarma çubuğu, kaldığın yerden devam ve telefon kumandası."
+            else
+                "Kanala basınca cihazdaki oynatıcılardan biri açılır. Kaldığın yerden devam ve telefon kumandası harici oynatıcıda çalışmaz.",
+            color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 4.dp),
+        )
+    }
+
+    @Composable
+    fun LockPanel() {
+        Row(
+            Modifier.fillMaxWidth().background(Palette.Surface, RoundedCornerShape(14.dp)).padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(Modifier.widthIn(max = 760.dp).fillMaxWidth()) {
-                if (firstRun) {
+            Box(
+                Modifier.size(46.dp).background(if (vm.hasPin) Palette.Accent else Palette.SurfaceHigh, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) { Text("🔒", fontSize = 20.sp) }
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(if (vm.hasPin) "PIN açık" else "PIN belirlenmedi", color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                Text(
+                    if (vm.hasPin) "Uygulama arka plana gidince kilit yeniden devreye girer."
+                    else "PIN belirleyince hesap ve kategori kilitleyebilirsin.",
+                    color = Palette.TextDim, fontSize = 14.sp,
+                )
+            }
+            if (vm.hasPin) {
+                TvButton("PIN'i değiştir", onClick = { vm.changePin() })
+                TvButton("PIN'i kaldır", onClick = { vm.removePin() })
+            } else {
+                TvButton("PIN belirle", primary = true, onClick = { vm.createPin() })
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Column(Modifier.fillMaxWidth().background(Palette.Surface, RoundedCornerShape(14.dp)).padding(18.dp)) {
+            if (vm.sources.isNotEmpty()) {
+                Label("HESAPLAR")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    vm.sources.forEach { a ->
+                        val on = a.locked && vm.hasPin
+                        SegChip((if (on) "🔒 " else "") + a.name, on, filledOff = true) { vm.toggleAccountLock(a.id) }
+                    }
+                }
+            }
+            val lockable = vm.groups.filter { it.id.startsWith("grp:") }
+            if (lockable.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                Label("KATEGORİLER · ${(vm.activeSource?.name ?: "").uppercase()}")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    lockable.forEach { g ->
+                        val on = g.locked && vm.hasPin
+                        SegChip((if (on) "🔒 " else "") + g.label, on, filledOff = true) { vm.toggleGroupLock(g.id) }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Text("Kilitli kategoriler PIN sorar ve \"Tüm kanallar\"da gizlenir.", color = Palette.TextDim, fontSize = 13.sp)
+            }
+        }
+    }
+
+    @Composable
+    fun BackupPanel(wide: Boolean) {
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            BigAction("⤓ Yedeği kaydet", "Dosyaya ya da İndirilenler/TvKutu klasörüne", primary = true, modifier = Modifier.weight(1f)) { saveBackup() }
+            BigAction("⤒ Geri yükle", "Dosyadan ya da cihazdaki yedekten", modifier = Modifier.weight(1f)) { openRestore() }
+        }
+        backupMsg?.let {
+            Spacer(Modifier.height(10.dp))
+            Text(it, color = if (backupErr) Palette.Danger else Palette.Accent, fontSize = 14.sp)
+        }
+        Spacer(Modifier.height(12.dp))
+        SettingRow("Geri yüklerken", "Yedekteki hesaplar ne yapılsın?", wide) {
+            SegChip("Hesaplarıma ekle", !restoreReplace) { restoreReplace = false }
+            SegChip("Hepsini değiştir", restoreReplace) { restoreReplace = true }
+        }
+        backupList?.let { list ->
+            Column(Modifier.fillMaxWidth().background(Palette.Surface, RoundedCornerShape(14.dp)).padding(16.dp)) {
+                Label("CİHAZDAKİ YEDEKLER")
+                if (list.isEmpty()) {
+                    Text("Cihazda kayıtlı yedek bulunamadı.", color = Palette.TextDim, fontSize = 14.sp)
+                    Spacer(Modifier.height(8.dp))
+                }
+                list.take(12).forEach { e ->
+                    Focusable(
+                        onClick = { chooseEntry(e) },
+                        shape = RoundedCornerShape(12.dp),
+                        focusedScale = 1.02f,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    ) { focused ->
+                        Row(Modifier.padding(horizontal = 16.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(e.label, color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("${formatDateTime(e.timeMs)} · ${e.detail}", color = Palette.TextDim, fontSize = 13.sp)
+                            }
+                            Text("Yükle", color = if (focused) Palette.Accent else Palette.TextDim, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TvButton("Dosya seç…", onClick = { pickFile() })
+                    TvButton("Vazgeç", onClick = { backupList = null })
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Başka bir cihazdaki yedeği yüklemek için telefon sayfasındaki Yedek sekmesini de kullanabilirsin.",
+                    color = Palette.TextDim, fontSize = 13.sp,
+                )
+            }
+        }
+        confirmEntry?.let { e ->
+            Spacer(Modifier.height(12.dp))
+            Column(
+                Modifier.fillMaxWidth().background(Palette.Danger.copy(alpha = 0.15f), RoundedCornerShape(12.dp)).padding(16.dp),
+            ) {
+                Text("Bu cihazdaki tüm hesaplar yedektekilerle değiştirilsin mi?", color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TvButton("Evet, değiştir", primary = true, onClick = { confirmEntry = null; doRestore(e.read) })
+                    TvButton("Vazgeç", onClick = { confirmEntry = null })
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun AboutPanel() {
+        Column(Modifier.fillMaxWidth().background(Palette.Surface, RoundedCornerShape(14.dp)).padding(20.dp)) {
+            Text("TvKutu ${BuildConfig.VERSION_NAME}", color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(4.dp))
+            Text("Güncellemeler eskisinin üzerine kurulur.", color = Palette.TextDim, fontSize = 15.sp)
+            Spacer(Modifier.height(14.dp))
+            InfoLine("Cihaz adı", vm.deviceName)
+            vm.remoteUrl?.let { InfoLine("Telefon kumandası", it) }
+            InfoLine("Veriler", "Yalnızca bu cihazda · reklam ve analitik yok")
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "TvKutu yalnızca bir oynatıcıdır; kanal, yayın veya abonelik içermez. " +
+                    "Yasal olarak abone olduğun sağlayıcının listesini kullan.",
+                color = Palette.TextDim, fontSize = 13.sp,
+            )
+        }
+    }
+
+    // ---- Kategoriler ----
+    val updLabel = when (vm.updateHours) { 0 -> "güncelleme kapalı"; else -> "${vm.updateHours} saatte bir" }
+    val lockCount = vm.sources.count { it.locked } + vm.groups.count { it.id.startsWith("grp:") && it.locked }
+    val cats = listOf(
+        Cat("hes", "👤", "Hesaplar", "${vm.sources.size} hesap · $updLabel", "Playlist linklerin. Açık olan hesap TV açılınca yüklenir."),
+        Cat("gor", "🎨", "Görünüm", "${Themes.byId(vm.themeId).name} teması", "Tema, kanal kartları ve afiş düzeni."),
+        Cat(
+            "oyn", "▶", "Oynatıcı",
+            if (vm.playerMode == AppViewModel.PLAYER_INTERNAL)
+                "Dahili · " + when (vm.streamFormat) { "hls" -> "HLS"; "ts" -> "MPEG-TS"; else -> "Otomatik" }
+            else "Harici uygulama",
+            "Kanallar hangi oynatıcıda ve nasıl açılsın?",
+        ),
+        Cat("kil", "🔒", "Ebeveyn kilidi", if (vm.hasPin) "PIN açık · $lockCount kilit" else "PIN yok", "4 haneli PIN ile hesap ve kategori kilitle."),
+        Cat(
+            "wifi", "📶", "Wi‑Fi eşitleme",
+            "${vm.peers.size} cihaz · " + if (vm.autoSync) "otomatik" else "elle",
+            "Aynı Wi‑Fi'deki TvKutu'larla eşitle. İnternete hiçbir şey gönderilmez.",
+        ),
+        Cat("yed", "💾", "Yedekleme", "Kaydet ya da geri yükle", "Hesaplar, favoriler, kaldığın yerler ve ayarlar tek dosyada (PIN hariç)."),
+        Cat("hak", "ℹ", "Hakkında", "Sürüm ${BuildConfig.VERSION_NAME}", "Sürüm ve cihaz bilgileri."),
+    )
+    val current = cats.firstOrNull { it.id == cat } ?: cats[0]
+
+    @Composable
+    fun CategoryContent(wide: Boolean) {
+        when (current.id) {
+            "hes" -> AccountsPanel(wide)
+            "gor" -> AppearancePanel(wide)
+            "oyn" -> PlayerPanel(wide)
+            "kil" -> LockPanel()
+            "wifi" -> WifiSyncSection(vm, fieldColors, wide)
+            "yed" -> BackupPanel(wide)
+            else -> AboutPanel()
+        }
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize().background(Palette.Bg)) {
+        val wide = maxWidth >= 720.dp
+        if (firstRun) {
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                    .padding(horizontal = if (wide) 64.dp else 20.dp, vertical = if (wide) 40.dp else 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Column(Modifier.widthIn(max = 760.dp).fillMaxWidth()) {
                     Text("TvKutu", color = Palette.Accent, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     Text("Hoş geldin", color = Palette.Text, fontSize = if (wide) 34.sp else 28.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(6.dp))
                     Text("Başlamak için IPTV hesabını (playlist linkini) ekle.", color = Palette.TextDim, fontSize = 16.sp)
-                } else {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Ayarlar", color = Palette.Text, fontSize = if (wide) 34.sp else 28.sp, fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f))
-                        TvButton("Kapat", onClick = { vm.closeSettings() })
-                    }
+                    Spacer(Modifier.height(22.dp))
+                    QrButton(Modifier.focusRequester(qrFocus))
+                    Spacer(Modifier.height(18.dp))
+                    AccountList()
+                    Spacer(Modifier.height(8.dp))
+                    Text("Elle hesap ekle:", color = Palette.TextDim, fontSize = 15.sp)
+                    Spacer(Modifier.height(10.dp))
+                    AddForm()
+                    Spacer(Modifier.height(12.dp))
+                    TvButton("＋ Ekle ve aç", primary = true, onClick = { addNew() })
+                    Spacer(Modifier.height(24.dp))
                 }
-
-                // ---- Hesaplar ----
-                Section("Hesaplar")
-                Text(
-                    "Her playlist linki ayrı bir hesaptır; TV'de seçtiğin hesap görünür. Favoriler, son kanal ve EPG her hesapta ayrı tutulur.",
-                    color = Palette.TextDim, fontSize = 15.sp,
-                )
-                Spacer(Modifier.height(16.dp))
-                Focusable(
-                    onClick = { vm.openQrSetup() },
-                    shape = RoundedCornerShape(50),
-                    focusedScale = 1.03f,
-                    selected = true,
-                    modifier = Modifier.focusRequester(qrFocus),
-                ) { focused ->
-                    Row(Modifier.padding(horizontal = 22.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("📱", fontSize = 20.sp)
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            "Telefondan ekle ve yönet (karekod)",
-                            color = if (focused) Palette.Accent else Palette.Text,
-                            fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+            }
+            LaunchedEffect(Unit) { runCatching { qrFocus.requestFocus() } }
+        } else if (wide) {
+            val navFocus = remember { FocusRequester() }
+            LaunchedEffect(Unit) { runCatching { navFocus.requestFocus() } }
+            Row(Modifier.fillMaxSize()) {
+                Column(
+                    Modifier.width(320.dp).fillMaxHeight().background(Palette.Surface)
+                        .verticalScroll(rememberScrollState())
+                        .padding(start = 26.dp, end = 16.dp, top = 30.dp, bottom = 20.dp),
+                ) {
+                    Text("TvKutu", color = Palette.Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text("Ayarlar", color = Palette.Text, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
+                    Spacer(Modifier.height(18.dp))
+                    cats.forEach { c ->
+                        CategoryItem(
+                            c, selected = c.id == current.id,
+                            onFocus = { cat = c.id },
+                            onClick = { cat = c.id; runCatching { focusManager.moveFocus(FocusDirection.Right) } },
+                            modifier = if (c.id == current.id) Modifier.focusRequester(navFocus) else Modifier,
                         )
                     }
-                }
-                Spacer(Modifier.height(18.dp))
-                vm.sources.forEach { a ->
-                    val isActive = a.id == vm.activeId
-                    Row(
-                        Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                            .background(Palette.Surface, RoundedCornerShape(12.dp))
-                            .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(Modifier.size(36.dp).background(parseHex(a.color), RoundedCornerShape(9.dp)))
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                (if (a.locked && vm.hasPin) "🔒 " else "") + a.name,
-                                color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                when {
-                                    a.error.isNotEmpty() -> "Bağlanamadı: ${a.error}"
-                                    isActive -> "Açık · ${if (a.count > 0) "${a.count} kanal" else "yükleniyor"}"
-                                    a.count > 0 -> "${a.count} kanal"
-                                    else -> a.url
-                                },
-                                color = when {
-                                    a.error.isNotEmpty() -> Palette.Danger
-                                    isActive -> Palette.Accent
-                                    else -> Palette.TextDim
-                                },
-                                fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        if (!isActive) TvButton("Aç", onClick = { vm.openAccount(a.id) })
-                        TvButton(if (a.locked && vm.hasPin) "Kilidi aç" else "Kilitle", onClick = { vm.toggleAccountLock(a.id) })
-                        TvButton("Sil", onClick = { vm.deleteAccount(a.id) })
-                    }
-                }
-                if (vm.sources.isNotEmpty()) {
-                    TvButton("Bağlantıları kontrol et", onClick = { vm.checkAll(force = true) })
-                }
-
-                Spacer(Modifier.height(16.dp))
-                Text("Elle hesap ekle:", color = Palette.TextDim, fontSize = 15.sp)
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = newName,
-                    onValueChange = { newName = it },
-                    label = { Text("Hesap adı (isteğe bağlı)") },
-                    singleLine = true,
-                    colors = fieldColors,
-                    shape = RoundedCornerShape(12.dp),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = newUrl,
-                    onValueChange = { newUrl = it; error = null },
-                    label = { Text("Playlist linki (m3u / m3u8)") },
-                    placeholder = { Text("https://…/playlist.m3u") },
-                    singleLine = true,
-                    colors = fieldColors,
-                    shape = RoundedCornerShape(12.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
-                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = newEpg,
-                    onValueChange = { newEpg = it },
-                    label = { Text("EPG linki (isteğe bağlı)") },
-                    placeholder = { Text("Boş kalırsa listedeki url-tvg kullanılır") },
-                    singleLine = true,
-                    colors = fieldColors,
-                    shape = RoundedCornerShape(12.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { addNew() }),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                (error ?: vm.loadError)?.let {
-                    Spacer(Modifier.height(12.dp))
-                    Text(it, color = Palette.Danger, fontSize = 14.sp)
-                }
-                Spacer(Modifier.height(12.dp))
-                TvButton("＋ Ekle ve aç", primary = true, onClick = { addNew() })
-
-                // ---- Ebeveyn kilidi ----
-                Section("Ebeveyn kilidi")
-                Text(
-                    "4 haneli bir PIN ile hesapları ve kategorileri kilitleyebilirsin. Kilit, uygulama arka plana gidince yeniden devreye girer.",
-                    color = Palette.TextDim, fontSize = 15.sp,
-                )
-                Spacer(Modifier.height(14.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    if (!vm.hasPin) {
-                        TvButton("PIN belirle", primary = true, onClick = { vm.createPin() })
-                    } else {
-                        TvButton("PIN'i değiştir", onClick = { vm.changePin() })
-                        TvButton("PIN'i kaldır", onClick = { vm.removePin() })
-                    }
-                }
-                val lockable = vm.groups.filter { it.id.startsWith("grp:") }
-                if (vm.hasPin && lockable.isNotEmpty()) {
-                    Spacer(Modifier.height(18.dp))
-                    Text(
-                        "Kilitli kategoriler (${vm.activeSource?.name ?: ""}): seçili olanlar PIN sorar ve \"Tüm kanallar\"da gizlenir.",
-                        color = Palette.TextDim, fontSize = 15.sp,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        lockable.forEach { g ->
-                            Chip((if (g.locked) "🔒 " else "") + g.label, selected = g.locked) { vm.toggleGroupLock(g.id) }
-                        }
-                    }
-                }
-
-                // ---- Yedekleme ----
-                Section("Yedekleme")
-                Text(
-                    "Hesaplar, favoriler, kaldığın yerler, kilitli kategoriler ve görünüm ayarları tek dosyada. PIN yedeğe girmez. " +
-                        "Hesaplar değiştikçe cihazın içine otomatik yedek de alınır (son 5).",
-                    color = Palette.TextDim, fontSize = 15.sp,
-                )
-                Spacer(Modifier.height(14.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    TvButton("⤓ Yedeği kaydet", primary = true, onClick = { saveBackup() })
-                    TvButton("⤒ Geri yükle", onClick = { openRestore() })
-                }
-                backupMsg?.let {
-                    Spacer(Modifier.height(10.dp))
-                    Text(it, color = if (backupErr) Palette.Danger else Palette.Accent, fontSize = 14.sp)
-                }
-                backupList?.let { list ->
                     Spacer(Modifier.height(16.dp))
-                    Text("Geri yükleme biçimi:", color = Palette.TextDim, fontSize = 15.sp)
-                    Spacer(Modifier.height(10.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Chip("Hesaplarıma ekle", selected = !restoreReplace) { restoreReplace = false }
-                        Chip("Hepsini değiştir", selected = restoreReplace) { restoreReplace = true }
-                    }
-                    Spacer(Modifier.height(14.dp))
-                    if (list.isEmpty()) {
-                        Text("Cihazda kayıtlı yedek bulunamadı.", color = Palette.TextDim, fontSize = 14.sp)
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    list.take(12).forEach { e ->
-                        Focusable(
-                            onClick = { chooseEntry(e) },
-                            shape = RoundedCornerShape(12.dp),
-                            focusedScale = 1.02f,
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        ) { focused ->
-                            Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(e.label, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text("${formatDateTime(e.timeMs)} · ${e.detail}", color = Palette.TextDim, fontSize = 13.sp)
-                                }
-                                Text("Yükle", color = if (focused) Palette.Accent else Palette.TextDim, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        TvButton("Dosya seç…", onClick = { pickFile() })
-                        TvButton("Vazgeç", onClick = { backupList = null })
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "Başka bir cihazdaki yedeği yüklemek için telefon sayfasındaki Yedek sekmesini de kullanabilirsin.",
-                        color = Palette.TextDim, fontSize = 13.sp,
-                    )
+                    TvButton("← Kapat", onClick = { vm.closeSettings() }, modifier = Modifier.fillMaxWidth())
                 }
-                confirmEntry?.let { e ->
-                    Spacer(Modifier.height(12.dp))
+                key(current.id) {
                     Column(
-                        Modifier.fillMaxWidth().background(Color(0xFF2C1B1D), RoundedCornerShape(12.dp)).padding(16.dp),
+                        Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())
+                            .padding(horizontal = 40.dp, vertical = 30.dp),
                     ) {
-                        Text("Bu cihazdaki tüm hesaplar yedektekilerle değiştirilsin mi?", color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            TvButton("Evet, değiştir", primary = true, onClick = { confirmEntry = null; doRestore(e.read) })
-                            TvButton("Vazgeç", onClick = { confirmEntry = null })
-                        }
+                        Text(current.label, color = Palette.Text, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
+                        Spacer(Modifier.height(4.dp))
+                        Text(current.desc, color = Palette.TextDim, fontSize = 16.sp)
+                        Spacer(Modifier.height(20.dp))
+                        CategoryContent(wide = true)
+                        Spacer(Modifier.height(30.dp))
                     }
                 }
-
-                // ---- Wi‑Fi eşitleme ----
-                WifiSyncSection(vm, fieldColors)
-
-                // ---- Görünüm ----
-                Section("Görünüm")
-                Text("Tema", color = Palette.TextDim, fontSize = 15.sp)
-                Spacer(Modifier.height(12.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Themes.all.forEach { t -> ThemeChip(t, selected = vm.themeId == t.id) { vm.setTheme(t.id) } }
-                }
-                Spacer(Modifier.height(20.dp))
-                Text("Kanal kartları nasıl görünsün?", color = Palette.TextDim, fontSize = 15.sp)
-                Spacer(Modifier.height(14.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    listOf(
-                        "auto" to "Otomatik (filmler afiş, TV logo)",
-                        "always" to "Hep afiş",
-                        "never" to "Hep logo",
-                    ).forEach { (v, label) -> Chip(label, selected = vm.posterMode == v) { vm.setPosterModeOption(v) } }
-                }
-                if (vm.posterMode != "never") {
-                    Spacer(Modifier.height(18.dp))
-                    Text("Afiş kartında ad nerede dursun?", color = Palette.TextDim, fontSize = 15.sp)
-                    Spacer(Modifier.height(14.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Chip("Afişin üstünde", selected = vm.posterTitle == "overlay") { vm.setPosterTitleOption("overlay") }
-                        Chip("Afişin altında", selected = vm.posterTitle == "below") { vm.setPosterTitleOption("below") }
+            }
+        } else {
+            // Telefon: önce kategori listesi, dokununca ayrıntı.
+            BackHandler(enabled = narrowOpen) { narrowOpen = false }
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 20.dp),
+            ) {
+                if (!narrowOpen) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Ayarlar", color = Palette.Text, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+                        TvButton("Kapat", onClick = { vm.closeSettings() })
                     }
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        "TV'de ad, kumanda afişin üzerine gelince görünür. \"Tüm kanallar\" seçiliyken kategoriler satır satır listelenir.",
-                        color = Palette.TextDim, fontSize = 13.sp,
-                    )
-                }
-
-                // ---- Oynatıcı ----
-                Section("Oynatıcı")
-                Text("Kanallar hangi oynatıcıda açılsın?", color = Palette.TextDim, fontSize = 15.sp)
-                Spacer(Modifier.height(14.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Chip("Dahili (ExoPlayer)", selected = vm.playerMode == AppViewModel.PLAYER_INTERNAL) {
-                        vm.setPlayer(AppViewModel.PLAYER_INTERNAL)
-                    }
-                    Chip("Harici uygulama (VLC, MX…)", selected = vm.playerMode == AppViewModel.PLAYER_EXTERNAL) {
-                        vm.setPlayer(AppViewModel.PLAYER_EXTERNAL)
-                    }
-                }
-                if (vm.playerMode == AppViewModel.PLAYER_INTERNAL) {
-                    Spacer(Modifier.height(18.dp))
-                    Text(
-                        "Yayın biçimi: çoğu liste için Otomatik doğrudur. Bir kanal açılmıyorsa HLS veya MPEG-TS'yi dene.",
-                        color = Palette.TextDim, fontSize = 15.sp,
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        listOf("auto" to "Otomatik", "hls" to "HLS (m3u8)", "ts" to "MPEG-TS").forEach { (f, label) ->
-                            Chip(label, selected = vm.streamFormat == f) { vm.setFormat(f) }
-                        }
+                    Spacer(Modifier.height(16.dp))
+                    cats.forEach { c ->
+                        CategoryItem(c, selected = false, onFocus = null, onClick = { cat = c.id; narrowOpen = true })
                     }
                 } else {
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        "Kanala basınca cihazdaki oynatıcılardan birini seçmen istenir. Yayın akışı ve kanal değiştirme TvKutu içinde kalır.",
-                        color = Palette.TextDim, fontSize = 14.sp,
-                    )
+                    TvButton("‹ Ayarlar", onClick = { narrowOpen = false })
+                    Spacer(Modifier.height(10.dp))
+                    Text(current.label, color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(current.desc, color = Palette.TextDim, fontSize = 15.sp)
+                    Spacer(Modifier.height(16.dp))
+                    CategoryContent(wide = false)
                 }
-
-                // ---- Otomatik güncelleme ----
-                Section("Otomatik güncelleme")
-                Text("Liste ve yayın akışı, uygulama açıkken seçtiğin aralıkla yenilenir.",
-                    color = Palette.TextDim, fontSize = 15.sp)
-                Spacer(Modifier.height(14.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    listOf(6 to "6 saatte bir", 12 to "12 saatte bir", 24 to "24 saatte bir", 0 to "Kapalı").forEach { (h, label) ->
-                        Chip(label, selected = vm.updateHours == h) { vm.setUpdateInterval(h) }
-                    }
-                }
-
-                // ---- Hakkında ----
-                Section("Hakkında")
-                Text("TvKutu ${BuildConfig.VERSION_NAME}", color = Palette.Text, fontSize = 15.sp)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "TvKutu yalnızca bir oynatıcıdır; kanal, yayın veya abonelik içermez. " +
-                        "Yasal olarak abone olduğun sağlayıcının listesini kullan. Hesap, reklam ve analitik yoktur; linkler yalnızca bu cihazda saklanır.",
-                    color = Palette.TextDim, fontSize = 13.sp,
-                )
                 Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+
+    if (showAdd) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { showAdd = false }) {
+            val first = remember { FocusRequester() }
+            LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+            Column(
+                Modifier.widthIn(max = 620.dp).background(Palette.Surface, RoundedCornerShape(24.dp)).padding(26.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Text("Hesap ekle", color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                Spacer(Modifier.height(4.dp))
+                Text("Linki telefondan göndermek daha kolay: karekodu okut.", color = Palette.TextDim, fontSize = 14.sp)
+                Spacer(Modifier.height(16.dp))
+                Box(Modifier.focusRequester(first)) { QrButton() }
+                Spacer(Modifier.height(16.dp))
+                AddForm()
+                Spacer(Modifier.height(16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TvButton("＋ Ekle ve aç", primary = true, onClick = {
+                        addNew()
+                        if (error == null) showAdd = false
+                    })
+                    TvButton("Vazgeç", onClick = { showAdd = false })
+                }
             }
         }
     }
 }
 
-@Composable
-private fun Section(title: String) {
-    Spacer(Modifier.height(32.dp))
-    Text(title.uppercase(), color = Palette.Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
-    Spacer(Modifier.height(8.dp))
-    HorizontalDivider(color = Palette.SurfaceHigh)
-    Spacer(Modifier.height(14.dp))
-}
+private data class Cat(val id: String, val icon: String, val label: String, val sub: String, val desc: String)
 
 @Composable
-private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
-    Focusable(onClick = onClick, shape = RoundedCornerShape(50), selected = selected, focusedScale = 1.04f) { focused ->
+private fun CategoryItem(c: Cat, selected: Boolean, onFocus: (() -> Unit)?, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Focusable(
+        onClick = onClick, onFocus = onFocus, shape = RoundedCornerShape(14.dp), focusedScale = 1.02f,
+        modifier = modifier.fillMaxWidth().padding(bottom = 4.dp),
+    ) { focused ->
+        Row(
+            Modifier.fillMaxWidth().background(if (selected) Palette.SurfaceHigh else Color.Transparent)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.size(36.dp).background(if (selected || focused) Palette.Accent else Palette.Bg, RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center,
+            ) { Text(c.icon, fontSize = 17.sp, color = if (selected || focused) Palette.Ink else Palette.Text) }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(c.label, color = Palette.Text, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                Text(
+                    c.sub, color = if (selected) Palette.Accent else Palette.TextDim, fontSize = 13.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/** Ayar satırı: solda ad ve açıklama, sağda seçenekler (dar ekranda alta iner). */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SettingRow(label: String, help: String, wide: Boolean, controls: @Composable () -> Unit) {
+    val mod = Modifier.fillMaxWidth().padding(bottom = 10.dp).background(Palette.Surface, RoundedCornerShape(14.dp))
+        .padding(horizontal = 18.dp, vertical = 14.dp)
+    if (wide) {
+        Row(mod, verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).padding(end = 16.dp)) {
+                Text(label, color = Palette.Text, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                Text(help, color = Palette.TextDim, fontSize = 14.sp)
+            }
+            Row(
+                Modifier.background(Palette.Bg, RoundedCornerShape(50)).padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) { controls() }
+        }
+    } else {
+        Column(mod) {
+            Text(label, color = Palette.Text, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+            Text(help, color = Palette.TextDim, fontSize = 14.sp)
+            Spacer(Modifier.height(10.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { controls() }
+        }
+    }
+}
+
+/** Seçenek düğmesi: seçili olan vurgu renginde dolu. */
+@Composable
+private fun SegChip(label: String, selected: Boolean, filledOff: Boolean = false, onClick: () -> Unit) {
+    Focusable(onClick = onClick, shape = RoundedCornerShape(50), focusedScale = 1.06f) { focused ->
         Text(
-            (if (selected) "✓  " else "") + label,
-            color = if (focused || selected) Palette.Text else Palette.TextDim,
-            fontSize = 16.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 11.dp),
+            label,
+            color = when {
+                selected -> Palette.Ink
+                focused -> Palette.Text
+                filledOff -> Palette.Text
+                else -> Palette.TextDim
+            },
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .background(if (selected) Palette.Accent else if (filledOff) Palette.SurfaceHigh else Color.Transparent)
+                .padding(horizontal = 16.dp, vertical = 9.dp),
         )
     }
 }
 
 @Composable
-private fun ThemeChip(t: AppTheme, selected: Boolean, onClick: () -> Unit) {
-    Focusable(onClick = onClick, shape = RoundedCornerShape(50), selected = selected, focusedScale = 1.04f) { focused ->
-        Row(Modifier.padding(start = 10.dp, end = 18.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(28.dp).background(t.bg, CircleShape)
-                    .border(2.dp, if (selected) Palette.Accent else t.surfaceHigh, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) { Box(Modifier.size(12.dp).background(t.accent, CircleShape)) }
-            Spacer(Modifier.width(10.dp))
-            Text(
-                (if (selected) "✓ " else "") + t.name,
-                color = if (focused || selected) Palette.Text else Palette.TextDim, fontSize = 15.sp,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            )
+private fun Label(text: String) {
+    Text(text, color = Palette.TextDim, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.6.sp)
+    Spacer(Modifier.height(10.dp))
+}
+
+@Composable
+private fun InfoLine(label: String, value: String) {
+    HorizontalDivider(color = Palette.SurfaceHigh)
+    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+        Text(label, color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.weight(1f))
+        Text(value, color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun BigAction(title: String, sub: String, primary: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Focusable(onClick = onClick, shape = RoundedCornerShape(14.dp), focusedScale = 1.03f, modifier = modifier) { focused ->
+        Column(
+            Modifier.fillMaxWidth().background(if (primary) Palette.Accent else Palette.Surface).padding(18.dp),
+        ) {
+            Text(title, color = if (primary) Palette.Ink else Palette.Text, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold)
+            Text(sub, color = if (primary) Palette.Ink.copy(alpha = 0.75f) else Palette.TextDim, fontSize = 14.sp)
+        }
+    }
+}
+
+@Composable
+private fun ThemeCard(t: AppTheme, selected: Boolean, onClick: () -> Unit) {
+    Focusable(onClick = onClick, shape = RoundedCornerShape(14.dp), selected = selected, focusedScale = 1.06f) { _ ->
+        Column(
+            Modifier.width(118.dp).background(t.bg)
+                .then(if (selected) Modifier.border(3.dp, Palette.Accent, RoundedCornerShape(14.dp)) else Modifier)
+                .padding(10.dp),
+        ) {
+            Row(Modifier.fillMaxWidth().height(28.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(Modifier.weight(2f).fillMaxHeight().background(t.surfaceHigh, RoundedCornerShape(6.dp)))
+                Box(Modifier.weight(1f).fillMaxHeight().background(t.accent, RoundedCornerShape(6.dp)))
+            }
+            Spacer(Modifier.height(8.dp))
+            Text((if (selected) "✓ " else "") + t.name, color = t.text, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -544,7 +743,7 @@ private fun ThemeChip(t: AppTheme, selected: Boolean, onClick: () -> Unit) {
 /** Ayarlar › Wi‑Fi eşitleme · Yerel (kod, diğer cihazın kodu, ağdakiler, eşleşmiş cihazlar). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun WifiSyncSection(vm: AppViewModel, fieldColors: androidx.compose.material3.TextFieldColors) {
+private fun WifiSyncSection(vm: AppViewModel, fieldColors: androidx.compose.material3.TextFieldColors, wide: Boolean) {
     var other by rememberSaveable { mutableStateOf("") }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -554,27 +753,17 @@ private fun WifiSyncSection(vm: AppViewModel, fieldColors: androidx.compose.mate
             kotlinx.coroutines.delay(1_000)
         }
     }
-    Spacer(Modifier.height(32.dp))
+    SettingRow("Otomatik eşitle", "Hesaplar, favoriler, kaldığın yerler, kilitler, görünüm ve tema · PIN hariç", wide) {
+        SegChip("Açık", vm.autoSync) { vm.setAutoSyncOption(true) }
+        SegChip("Kapalı", !vm.autoSync) { vm.setAutoSyncOption(false) }
+    }
     Column(
-        Modifier.fillMaxWidth().background(Palette.Surface, RoundedCornerShape(20.dp)).padding(22.dp),
+        Modifier.fillMaxWidth().background(Palette.Surface, RoundedCornerShape(14.dp)).padding(18.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("📶", fontSize = 22.sp)
-            Spacer(Modifier.width(12.dp))
-            Text("Wi‑Fi eşitleme", color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-            Text(" · Yerel", color = Palette.TextDim, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            Chip(if (vm.autoSync) "Otomatik: açık" else "Otomatik: kapalı", selected = vm.autoSync) { vm.setAutoSyncOption(!vm.autoSync) }
-        }
-        Spacer(Modifier.height(10.dp))
-        Text(
-            "Hesaplar, favoriler, kaldığın yerler, kilitli kategoriler, görünüm ayarları ve tema aynı Wi‑Fi'deki TvKutu'larla eşitlenir. " +
-                "İnternete hiçbir şey gönderilmez; PIN eşitlenmez.",
-            color = Palette.TextDim, fontSize = 15.sp,
-        )
-        Spacer(Modifier.height(16.dp))
+        Text("BU CİHAZIN KODU", color = Palette.TextDim, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp)
         val left = ((vm.syncCodeExpires - now) / 1000).coerceAtLeast(0)
         Text(
-            "Kod: ${vm.syncCode.substring(0, 3)} ${vm.syncCode.substring(3)}",
+            "${vm.syncCode.substring(0, 3)} ${vm.syncCode.substring(3)}",
             color = Palette.Accent, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp,
         )
         Text(

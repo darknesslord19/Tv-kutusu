@@ -10,7 +10,7 @@ Kumandayla kullanılan, sade ve hızlı bir IPTV oynatıcı. Kendi m3u/m3u8 list
 
 Her `main` dalına gönderilen değişiklikte GitHub Actions APK'yı otomatik derler ve yeni bir sürüm (Release) olarak yayınlar.
 
-## Özellikler (v0.10)
+## Özellikler (v0.11)
 
 - **Kumanda için tasarlandı:** her ekran ok tuşları, OK ve Geri ile çalışır.
 - **Hesaplar:** her playlist linki ayrı bir hesap (renkli kutucuk). TV son açılan hesapla başlar; üst çubuktaki hesap adına basınca "Hesap Seç" ekranı açılır. Favoriler, son kanal ve EPG her hesapta ayrı.
@@ -19,6 +19,7 @@ Her `main` dalına gönderilen değişiklikte GitHub Actions APK'yı otomatik de
 - **Telefon kumandası:** TV'deki karekodu okut; telefonda gerçek kumanda (yön tuşları + OK, kanal ▲▼, ses +/−/sessiz, geri, ana ekran, menü, ⏯, ±10 sn, şu an oynayan ve dokunarak sarma), Hesap Seç (seç, ekle, düzenle, sil), kanal arama ("TV'de aç") ve yedek. Adres kalıcıdır, yer imlerine eklenebilir.
 - **Yedek ve geri yükleme:** Ayarlar › Yedekleme ya da telefon sayfası. Hesaplar, favoriler, kaldığın yerler, kilitli kategoriler ve görünüm ayarları tek dosyada (PIN hariç). Dosya seçici olmayan kutularda İndirilenler/TvKutu klasörüne kaydedilir; ayrıca cihazın içinde son 5 otomatik yedek tutulur. "Hesaplarıma ekle" ya da "Hepsini değiştir".
 - **Wi‑Fi eşitleme:** Ayarlar › Wi‑Fi eşitleme. Aynı ağdaki iki TvKutu, birinin ekranındaki 6 haneli kodu diğerine yazarak eşleşir. Hesaplar, favoriler, kaldığın yerler, kilitli kategoriler, görünüm ayarları ve tema eşitlenir (PIN hariç); ilk eşleşmede "Birleştir / Bu cihazdakini / Diğer cihazdakini kullan" sorulur. Sonrasında değişiklikler otomatik birleşir (son yapılan değişiklik kazanır). İnternete hiçbir şey gönderilmez.
+- **Ayarlar:** solda kategoriler (Hesaplar, Görünüm, Oynatıcı, Ebeveyn kilidi, Wi‑Fi eşitleme, Yedekleme, Hakkında), sağda seçili kategorinin ayarları; telefonda önce liste, dokununca ayrıntı.
 - **10 tema:** Gece, Okyanus, Gün batımı, Lavanta, Orman, Sinema, Altın, Buz, Simsiyah (AMOLED) ve Gündüz (açık).
 - **Afiş kartları:** film ve dizi kategorilerinde afiş kartı tamamen doldurur (otomatik algılama, ya da hep afiş / hep logo). Ad afişin üstünde ya da altında. TV'de solda kategoriler, sağda afiş ızgarası; kumandanın üzerindeki afiş büyür ve adını gösterir.
 - **Kategori satırları:** "Tüm kanallar" seçiliyken her kategori yatay kayan bir satır olarak listelenir ("Tümü" ile kategoriye geçilir).
