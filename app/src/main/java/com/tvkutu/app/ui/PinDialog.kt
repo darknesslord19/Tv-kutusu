@@ -81,7 +81,7 @@ fun PinDialog(req: PinRequest, onCancel: () -> Unit) {
         Column(
             Modifier
                 .width(420.dp)
-                .background(Color(0xFF151920), RoundedCornerShape(24.dp))
+                .background(Palette.Surface, RoundedCornerShape(24.dp))
                 .padding(28.dp)
                 .onPreviewKeyEvent { e ->
                     val ne = e.nativeKeyEvent

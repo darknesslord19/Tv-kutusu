@@ -16,8 +16,8 @@ android {
         applicationId = "com.tvkutu.app"
         minSdk = 24          // Android 7.0
         targetSdk = 35
-        versionCode = 12
-        versionName = "0.9.0"
+        versionCode = 13
+        versionName = "0.10.0"
     }
 
     signingConfigs {

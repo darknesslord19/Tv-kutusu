@@ -64,7 +64,7 @@ fun ResumeDialog(vm: AppViewModel, req: ResumeRequest) {
             val wide = maxWidth >= 640.dp
             Row(
                 Modifier.widthIn(max = 860.dp)
-                    .background(Color(0xFF151920), RoundedCornerShape(26.dp))
+                    .background(Palette.Surface, RoundedCornerShape(26.dp))
                     .padding(if (wide) 36.dp else 22.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -82,10 +82,10 @@ fun ResumeDialog(vm: AppViewModel, req: ResumeRequest) {
                     Spacer(Modifier.height(14.dp))
                     Text(
                         "${watchedText(p.posMs)} izledin · ${WatchProgress.remainingText(p.remainingMs)}",
-                        color = Color(0xFFB7BFCC), fontSize = 17.sp,
+                        color = Palette.TextDim, fontSize = 17.sp,
                     )
                     Spacer(Modifier.height(10.dp))
-                    Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(Color(0x2EFFFFFF))) {
+                    Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(Palette.SurfaceHigh)) {
                         Box(Modifier.fillMaxWidth(p.fraction).height(8.dp).background(Palette.Accent))
                     }
                     Spacer(Modifier.height(26.dp))
@@ -126,17 +126,17 @@ private fun DialogButton(
     ) { focused ->
         Row(
             Modifier.fillMaxWidth()
-                .background(if (focused) Color.White else Color(0x14FFFFFF))
+                .background(if (focused) Palette.Accent else Palette.SurfaceHigh)
                 .padding(horizontal = 22.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text, color = if (focused) Palette.Bg else Palette.Text,
+                text, color = if (focused) Palette.Ink else Palette.Text,
                 fontSize = 18.sp, fontWeight = if (primary) FontWeight.ExtraBold else FontWeight.Bold,
                 modifier = Modifier.weight(1f),
             )
             if (trailing != null) {
-                Text(trailing, color = if (focused) Color(0xFF4A5260) else Palette.TextDim, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text(trailing, color = if (focused) Palette.Ink.copy(alpha = 0.7f) else Palette.TextDim, fontSize = 17.sp, fontWeight = FontWeight.Bold)
             }
         }
     }

@@ -675,7 +675,7 @@ private fun SeekBar(
         )
         if (bubble != null) {
             Text(
-                bubble, color = Palette.Bg, fontSize = if (tv) 16.sp else 13.sp, fontWeight = FontWeight.ExtraBold,
+                bubble, color = Palette.Ink, fontSize = if (tv) 16.sp else 13.sp, fontWeight = FontWeight.ExtraBold,
                 maxLines = 1,
                 modifier = Modifier
                     .offset(x = (widthDp * frac - 70.dp).coerceIn(0.dp, (widthDp - 140.dp).coerceAtLeast(0.dp)), y = if (tv) (-38).dp else (-32).dp)
@@ -706,7 +706,7 @@ private fun RoundButton(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                glyph, color = if (white) Palette.Bg else Color.White,
+                glyph, color = if (white) Palette.Ink else Color.White,
                 fontSize = (size.value * (if (small != null) 0.5f else 0.38f)).sp, fontWeight = FontWeight.Bold,
             )
             if (small != null) {
@@ -766,7 +766,7 @@ private fun SkipButton(size: Dp, forward: Boolean, onClick: () -> Unit) {
 private fun PillButton(text: String, tv: Boolean, onClick: () -> Unit) {
     Focusable(onClick = onClick, shape = RoundedCornerShape(50), focusedScale = 1.05f) { focused ->
         Text(
-            text, color = if (focused) Palette.Bg else Color.White, fontSize = if (tv) 16.sp else 14.sp, fontWeight = FontWeight.Bold,
+            text, color = if (focused) Palette.Ink else Color.White, fontSize = if (tv) 16.sp else 14.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier
                 .background(if (focused) Color.White else Color(0x1FFFFFFF), RoundedCornerShape(50))
                 .padding(horizontal = if (tv) 20.dp else 16.dp, vertical = if (tv) 15.dp else 12.dp),
@@ -883,7 +883,7 @@ private fun LivePanel(
 private fun LiveButton(text: String, primary: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Focusable(onClick = onClick, shape = RoundedCornerShape(50), focusedScale = 1.05f, modifier = modifier) { focused ->
         Text(
-            text, color = if (focused || primary) Palette.Bg else Color.White, fontSize = 16.sp,
+            text, color = if (focused || primary) Palette.Ink else Color.White, fontSize = 16.sp,
             fontWeight = if (primary) FontWeight.ExtraBold else FontWeight.Bold,
             modifier = Modifier
                 .background(
@@ -944,7 +944,7 @@ private fun TracksPanel(player: ExoPlayer, version: Int, modifier: Modifier, onC
 
     Column(
         modifier.fillMaxWidth(0.9f).widthIn(max = 420.dp).fillMaxHeight()
-            .background(Color(0xE6101318)).padding(top = 24.dp),
+            .background(Palette.Bg.copy(alpha = 0.94f)).padding(top = 24.dp),
     ) {
         Text("Ses / Altyazı", color = Palette.Accent, fontSize = 18.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(horizontal = 24.dp))
@@ -991,7 +991,7 @@ private fun ChannelsPanel(
         runCatching { focus.requestFocus() }
     }
     Column(
-        modifier.fillMaxWidth(0.9f).widthIn(max = 380.dp).fillMaxHeight().background(Color(0xE6101318)).padding(top = 24.dp)
+        modifier.fillMaxWidth(0.9f).widthIn(max = 380.dp).fillMaxHeight().background(Palette.Bg.copy(alpha = 0.94f)).padding(top = 24.dp)
     ) {
         Text(vm.groupLabel(vm.selectedGroup), color = Palette.Accent, fontSize = 18.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(horizontal = 24.dp))
@@ -1042,7 +1042,7 @@ private fun GuidePanel(vm: AppViewModel, channel: Channel, modifier: Modifier) {
         runCatching { focus.requestFocus() }
     }
     Column(
-        modifier.fillMaxWidth(0.9f).widthIn(max = 460.dp).fillMaxHeight().background(Color(0xE6101318)).padding(top = 24.dp)
+        modifier.fillMaxWidth(0.9f).widthIn(max = 460.dp).fillMaxHeight().background(Palette.Bg.copy(alpha = 0.94f)).padding(top = 24.dp)
     ) {
         Text("Yayın akışı · ${channel.name}", color = Palette.Accent, fontSize = 18.sp, fontWeight = FontWeight.Bold,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 24.dp))

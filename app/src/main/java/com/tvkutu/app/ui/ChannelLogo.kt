@@ -73,7 +73,7 @@ fun PosterArt(
     onAspect: ((Float) -> Unit)? = null,
 ) {
     var failed by remember(image) { mutableStateOf(false) }
-    Box(modifier.background(Color(0xFF1B2029)), contentAlignment = Alignment.Center) {
+    Box(modifier.background(Palette.SurfaceHigh), contentAlignment = Alignment.Center) {
         if (image == null || failed) {
             Text(
                 name, color = Palette.TextDim, fontSize = 15.sp, fontWeight = FontWeight.Bold,

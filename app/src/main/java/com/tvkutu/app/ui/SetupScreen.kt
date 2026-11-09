@@ -1,5 +1,7 @@
 package com.tvkutu.app.ui
 
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
 import com.tvkutu.app.data.BackupFiles
 import com.tvkutu.app.data.BackupEntry
 import androidx.compose.ui.graphics.Color
@@ -387,8 +389,20 @@ fun SetupScreen(vm: AppViewModel) {
                     }
                 }
 
+                // ---- Wi‑Fi eşitleme ----
+                WifiSyncSection(vm, fieldColors)
+
                 // ---- Görünüm ----
                 Section("Görünüm")
+                Text("Tema", color = Palette.TextDim, fontSize = 15.sp)
+                Spacer(Modifier.height(12.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Themes.all.forEach { t -> ThemeChip(t, selected = vm.themeId == t.id) { vm.setTheme(t.id) } }
+                }
+                Spacer(Modifier.height(20.dp))
                 Text("Kanal kartları nasıl görünsün?", color = Palette.TextDim, fontSize = 15.sp)
                 Spacer(Modifier.height(14.dp))
                 FlowRow(
@@ -505,5 +519,163 @@ private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 11.dp),
         )
+    }
+}
+
+@Composable
+private fun ThemeChip(t: AppTheme, selected: Boolean, onClick: () -> Unit) {
+    Focusable(onClick = onClick, shape = RoundedCornerShape(50), selected = selected, focusedScale = 1.04f) { focused ->
+        Row(Modifier.padding(start = 10.dp, end = 18.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(28.dp).background(t.bg, CircleShape)
+                    .border(2.dp, if (selected) Palette.Accent else t.surfaceHigh, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) { Box(Modifier.size(12.dp).background(t.accent, CircleShape)) }
+            Spacer(Modifier.width(10.dp))
+            Text(
+                (if (selected) "✓ " else "") + t.name,
+                color = if (focused || selected) Palette.Text else Palette.TextDim, fontSize = 15.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            )
+        }
+    }
+}
+
+/** Ayarlar › Wi‑Fi eşitleme · Yerel (kod, diğer cihazın kodu, ağdakiler, eşleşmiş cihazlar). */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun WifiSyncSection(vm: AppViewModel, fieldColors: androidx.compose.material3.TextFieldColors) {
+    var other by rememberSaveable { mutableStateOf("") }
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            vm.refreshSyncCode()
+            now = System.currentTimeMillis()
+            kotlinx.coroutines.delay(1_000)
+        }
+    }
+    Spacer(Modifier.height(32.dp))
+    Column(
+        Modifier.fillMaxWidth().background(Palette.Surface, RoundedCornerShape(20.dp)).padding(22.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("📶", fontSize = 22.sp)
+            Spacer(Modifier.width(12.dp))
+            Text("Wi‑Fi eşitleme", color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+            Text(" · Yerel", color = Palette.TextDim, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Chip(if (vm.autoSync) "Otomatik: açık" else "Otomatik: kapalı", selected = vm.autoSync) { vm.setAutoSyncOption(!vm.autoSync) }
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "Hesaplar, favoriler, kaldığın yerler, kilitli kategoriler, görünüm ayarları ve tema aynı Wi‑Fi'deki TvKutu'larla eşitlenir. " +
+                "İnternete hiçbir şey gönderilmez; PIN eşitlenmez.",
+            color = Palette.TextDim, fontSize = 15.sp,
+        )
+        Spacer(Modifier.height(16.dp))
+        val left = ((vm.syncCodeExpires - now) / 1000).coerceAtLeast(0)
+        Text(
+            "Kod: ${vm.syncCode.substring(0, 3)} ${vm.syncCode.substring(3)}",
+            color = Palette.Accent, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp,
+        )
+        Text(
+            "Diğer cihazda \"Diğer cihazın kodu\" kutusuna bu kodu yaz. %d:%02d geçerli.".format(left / 60, left % 60),
+            color = Palette.TextDim, fontSize = 14.sp,
+        )
+        Spacer(Modifier.height(14.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = other,
+                onValueChange = { v -> other = v.filter { it.isDigit() || it == ' ' }.take(7) },
+                label = { Text("Diğer cihazın kodu") },
+                singleLine = true,
+                colors = fieldColors,
+                shape = RoundedCornerShape(14.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { vm.pairWithCode(other) }),
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(12.dp))
+            TvButton(vm.syncBusy?.let { "Bekle…" } ?: "Bağlan", primary = true, onClick = { if (vm.syncBusy == null) vm.pairWithCode(other) })
+        }
+        vm.syncBusy?.let { Spacer(Modifier.height(8.dp)); Text(it, color = Palette.TextDim, fontSize = 14.sp) }
+        vm.syncError?.let { Spacer(Modifier.height(8.dp)); Text(it, color = Palette.Danger, fontSize = 14.sp) }
+
+        Spacer(Modifier.height(18.dp))
+        Text("AĞDA BULUNANLAR", color = Palette.TextDim, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp)
+        Spacer(Modifier.height(8.dp))
+        if (vm.nearby.isEmpty()) {
+            Text("Aranıyor… Diğer cihazda TvKutu açık ve aynı Wi‑Fi'de olmalı.", color = Palette.TextDim, fontSize = 14.sp)
+        }
+        vm.nearby.forEach { d ->
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 6.dp).background(Palette.SurfaceHigh, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(10.dp).background(Palette.Accent, CircleShape))
+                Spacer(Modifier.width(10.dp))
+                Text(d.name, color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text(if (vm.peers.any { it.deviceId == d.deviceId }) "Eşleşmiş" else "Kodunu yazarak bağlan", color = Palette.TextDim, fontSize = 13.sp)
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Text("EŞLEŞMİŞ CİHAZLAR", color = Palette.TextDim, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp)
+        Spacer(Modifier.height(8.dp))
+        if (vm.peers.isEmpty()) Text("Henüz eşleşmiş cihaz yok.", color = Palette.TextDim, fontSize = 14.sp)
+        vm.peers.forEach { p ->
+            val online = vm.isPeerOnline(p)
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 8.dp).background(Palette.SurfaceHigh, RoundedCornerShape(12.dp))
+                    .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(10.dp).background(if (online) Palette.Accent else Palette.TextDim.copy(alpha = 0.5f), CircleShape))
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(p.name, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        (if (online) "● Bağlı" else "Ağda görünmüyor") + " · " +
+                            (if (p.lastSyncMs > 0) "son eşitleme ${formatDateTime(p.lastSyncMs)}" else "henüz eşitlenmedi"),
+                        color = Palette.TextDim, fontSize = 13.sp,
+                    )
+                }
+                TvButton("Şimdi eşitle", onClick = { vm.syncNow(p.deviceId) })
+                TvButton("Kaldır", onClick = { vm.removePeer(p.deviceId) }, modifier = Modifier.padding(start = 8.dp))
+            }
+        }
+    }
+
+    vm.syncChoice?.let { choice ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = { vm.cancelFirstSync() }) {
+            val first = remember { FocusRequester() }
+            LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+            Column(Modifier.widthIn(max = 640.dp).background(Palette.Surface, RoundedCornerShape(24.dp)).padding(28.dp)) {
+                Text("${choice.peer.name} ile ilk eşitleme", color = Palette.Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Text("Hangi veriler esas alınsın?", color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                Spacer(Modifier.height(16.dp))
+                listOf(
+                    Triple("merge", "Birleştir (önerilen)", "İki cihazdaki her şey bir araya gelir; aynı link tek hesap olur."),
+                    Triple("mine", "Bu cihazdakini kullan", "Diğer cihazdaki hesaplar ve geçmiş bu cihazdakiyle değişir."),
+                    Triple("theirs", "Diğer cihazdakini kullan", "Bu cihazdaki hesaplar ve geçmiş diğer cihazdakiyle değişir."),
+                ).forEachIndexed { i, (id, title, desc) ->
+                    Focusable(
+                        onClick = { vm.firstSync(id) },
+                        shape = RoundedCornerShape(14.dp),
+                        focusedScale = 1.02f,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).then(if (i == 0) Modifier.focusRequester(first) else Modifier),
+                    ) { focused ->
+                        Column(
+                            Modifier.fillMaxWidth().background(if (focused) Palette.Accent else Palette.SurfaceHigh).padding(horizontal = 18.dp, vertical = 14.dp),
+                        ) {
+                            Text(title, color = if (focused) Palette.Ink else Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                            Text(desc, color = if (focused) Palette.Ink.copy(alpha = 0.75f) else Palette.TextDim, fontSize = 14.sp)
+                        }
+                    }
+                }
+                Text("Sonraki eşitlemelerde iki cihazdaki değişiklikler kendiliğinden birleşir.", color = Palette.TextDim, fontSize = 13.sp)
+            }
+        }
     }
 }

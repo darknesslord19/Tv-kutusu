@@ -17,7 +17,12 @@ data class Source(
     val error: String = "",
     /** Son kontrol zamanı (ms). */
     val checkedMs: Long = 0L,
+    /** Ad/link/renk/EPG/kilit son değiştiğinde (eşitleme için). */
+    val updatedMs: Long = 0L,
 ) {
+    /** Eşitlenen alanlar aynı mı (durum alanları hariç)? */
+    fun sameContent(o: Source) = url == o.url && name == o.name && color == o.color && epg == o.epg && locked == o.locked
+
     fun epgList(): List<String> =
         epg.split(',', '\n', ' ').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
 

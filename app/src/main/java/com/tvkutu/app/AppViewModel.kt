@@ -23,6 +23,10 @@ import com.tvkutu.app.data.RemoteOps
 import com.tvkutu.app.data.RemoteServer
 import com.tvkutu.app.data.Repository
 import com.tvkutu.app.data.Source
+import com.tvkutu.app.data.Sync
+import com.tvkutu.app.data.SyncDiscovery
+import com.tvkutu.app.ui.Palette
+import com.tvkutu.app.ui.Themes
 import com.tvkutu.app.data.WatchProgress
 import com.tvkutu.app.data.progressKey
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +36,12 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.security.SecureRandom
+import java.util.concurrent.TimeUnit
 import java.util.Locale
 
 enum class Screen { Setup, QrSetup, Accounts, Home, Player }
@@ -53,6 +63,9 @@ data class PlaybackInfo(val posMs: Long = 0, val durMs: Long = 0, val playing: B
 
 /** "Kaldığın yerden devam et?" penceresi isteği. */
 data class ResumeRequest(val channel: Channel, val progress: WatchProgress)
+
+/** İlk eşleşmeden sonra "hangi veriler esas alınsın?" sorusu. */
+data class SyncChoice(val peer: Repository.SyncPeer)
 
 /** TV'de PIN penceresi isteği. [create]: yeni PIN belirleme (iki kez sorulur). */
 data class PinRequest(val title: String, val subtitle: String, val create: Boolean = false, val onPin: (String) -> Unit)
@@ -124,6 +137,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var posterTitle by mutableStateOf(repo.posterTitle)
         private set
+    var themeId by mutableStateOf(repo.theme)
+        private set
 
     // ---- Ebeveyn kilidi ----
     var hasPin by mutableStateOf(repo.hasPin)
@@ -152,6 +167,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         code = repo.remoteCode,
         page = { remotePage },
         handler = { action, body -> runBlocking(Dispatchers.Main) { api.handle(action, body) } },
+        syncHandler = { action, headers, body -> runBlocking(Dispatchers.Main) { handleSync(action, headers, body) } },
     )
     private val remotePage: String by lazy {
         app.assets.open("remote.html").use { it.readBytes().toString(Charsets.UTF_8) }
@@ -192,12 +208,51 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    // ---- Wi‑Fi eşitleme durumu (init içinde kullanıldığı için init'ten önce) ----
+    val deviceName: String = runCatching {
+        android.provider.Settings.Global.getString(app.contentResolver, "device_name")
+    }.getOrNull()?.takeIf { it.isNotBlank() } ?: android.os.Build.MODEL ?: "TvKutu"
+
+    /** Aynı ağda bulunan TvKutu'lar. */
+    var nearby by mutableStateOf<List<SyncDiscovery.Peer>>(emptyList())
+        private set
+    var peers by mutableStateOf(repo.pairs)
+        private set
+    var autoSync by mutableStateOf(repo.autoSync)
+        private set
+    var syncCode by mutableStateOf(newSyncCode())
+        private set
+    var syncCodeExpires by mutableLongStateOf(System.currentTimeMillis() + SYNC_CODE_MS)
+        private set
+    var syncBusy by mutableStateOf<String?>(null)
+        private set
+    var syncError by mutableStateOf<String?>(null)
+        private set
+    var syncChoice by mutableStateOf<SyncChoice?>(null)
+        private set
+    private var discoveryStarted = false
+    private val discovery = SyncDiscovery(app, repo.deviceId) { list -> nearby = list }
+    private val pairFailures = ArrayDeque<Long>()
+    private var lastSyncedHash = 0
+    private val syncHttp by lazy {
+        repo.http.newBuilder().connectTimeout(4, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
+    }
+
     init {
+        Palette.theme = Themes.byId(repo.theme)
         startRemote()
         viewModelScope.launch {
             while (true) {
                 now = System.currentTimeMillis()
                 delay(30_000)
+            }
+        }
+        // Wi‑Fi eşitleme: değişiklik olunca (ve açılışta) eşleşmiş cihazlarla eşitle.
+        viewModelScope.launch {
+            delay(8_000)
+            while (true) {
+                runCatching { autoSyncTick() }
+                delay(45_000)
             }
         }
         // Uygulama açıkken seçilen aralıkla aktif hesabı yenile.
@@ -220,6 +275,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         server.stop()
+        runCatching { discovery.stop() }
     }
 
     /** Sunucuyu başlatır (çalışıyorsa adresi tazeler). */
@@ -229,6 +285,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (port != repo.remotePort && port > 0) repo.remotePort = port
             val ip = RemoteServer.localIpv4()
             remoteUrl = if (ip == null) null else "http://$ip:$port/s/${server.code}"
+            if (!discoveryStarted) {
+                discoveryStarted = true
+                runCatching { discovery.start(port, deviceName) }
+            }
         }.onFailure { remoteUrl = null }
     }
 
@@ -314,6 +374,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun showsRows(selected: String) = selected == ALL
 
     fun setPosterModeOption(v: String) { repo.posterMode = v; posterMode = v }
+    fun setTheme(id: String) {
+        val t = Themes.byId(id)
+        repo.theme = t.id
+        themeId = t.id
+        Palette.theme = t
+    }
     fun setPosterTitleOption(v: String) { repo.posterTitle = v; posterTitle = v }
 
     /** Kanal logosu: listedeki tvg-logo, yoksa EPG'deki ikon. */
@@ -746,10 +812,294 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         message = null
     }
 
+    // ---- Wi‑Fi eşitleme ----
+    private fun newSyncCode(): String = "%06d".format(SecureRandom().nextInt(1_000_000))
+
+    /** Süresi dolduysa yeni eşleme kodu üretir (ekran her saniye çağırabilir). */
+    fun refreshSyncCode(force: Boolean = false) {
+        if (force || System.currentTimeMillis() >= syncCodeExpires) {
+            syncCode = newSyncCode()
+            syncCodeExpires = System.currentTimeMillis() + SYNC_CODE_MS
+        }
+    }
+
+    fun setAutoSyncOption(v: Boolean) { repo.autoSync = v; autoSync = v }
+
+    /** Bu cihazın eşitleme görüntüsü (hesaplar link kimliğiyle). */
+    fun buildSnap(): Sync.Snap {
+        val list = sources
+        val idToSid = list.associate { it.id to Sync.sid(it.url) }
+        val accounts = HashMap<String, Sync.Acc>()
+        repo.deletedAccounts().forEach { (url, ts) ->
+            if (list.none { it.url == url }) accounts[Sync.sid(url)] = Sync.Acc(url, "", "", "", false, ts, deleted = true)
+        }
+        list.forEach { accounts[Sync.sid(it.url)] = Sync.Acc(it.url, it.name, it.color, it.epg, it.locked, it.updatedMs.coerceAtLeast(1)) }
+        val progressAll = HashMap<String, WatchProgress>()
+        list.forEach { s ->
+            repo.progress(s.id).forEach { (k, w) -> Sync.toShared(k, idToSid)?.let { progressAll[it] = w } }
+            repo.progressTombs(s.id).forEach { (k, ts) ->
+                Sync.toShared(k, idToSid)?.let { key -> if ((progressAll[key]?.updatedMs ?: 0) < ts) progressAll[key] = WatchProgress(-1, 0, ts) }
+            }
+        }
+        return Sync.Snap(
+            accounts = accounts,
+            favorites = repo.favLww().mapNotNull { (k, v) -> Sync.toShared(k, idToSid)?.let { it to v } }.toMap(),
+            locks = repo.lockLww().mapNotNull { (k, v) -> Sync.toShared(k, idToSid)?.let { it to v } }.toMap(),
+            progress = progressAll,
+            settings = backupSettings() + ("theme" to themeId),
+            settingsMs = repo.settingsMs,
+        )
+    }
+
+    /** Görüntüyü bu cihaza uygular. [replace]: görüntüde olmayanlar silinir. */
+    fun applySnap(snap: Sync.Snap, replace: Boolean) {
+        val now = System.currentTimeMillis()
+        val plan = Sync.planAccounts(sources, snap, replace, now) { Repository.newSourceId() }
+        repo.persistSources(plan.sources)
+        repo.addDeletedAccounts(plan.deletedUrls + snap.accounts.values.filter { it.deleted }.associate { it.url to it.ts })
+        sources = repo.sources
+        val idToSid = sources.associate { it.id to Sync.sid(it.url) }
+        val sidToId = idToSid.entries.associate { (k, v) -> v to k }
+
+        fun mergeLww(local: Map<String, Long>, shared: Map<String, Long>): Map<String, Long> {
+            val incoming = shared.mapNotNull { (k, v) -> Sync.toLocal(k, sidToId)?.let { it to v } }.toMap()
+            if (replace) return incoming
+            val out = HashMap(local)
+            incoming.forEach { (k, v) -> if (Math.abs(v) >= Math.abs(out[k] ?: 0L)) out[k] = v }
+            return out
+        }
+        favorites = repo.applyFavLww(mergeLww(repo.favLww(), snap.favorites))
+        lockedGroups = repo.applyLockLww(mergeLww(repo.lockLww(), snap.locks))
+
+        sources.forEach { s ->
+            val sid = idToSid[s.id] ?: return@forEach
+            val mine = snap.progress.filterKeys { it.startsWith("p:$sid/") || it.startsWith("$sid/") }
+            val live = if (replace) HashMap() else HashMap(repo.progress(s.id))
+            val tombs = if (replace) HashMap() else HashMap(repo.progressTombs(s.id))
+            mine.forEach { (k, w) ->
+                val lk = Sync.toLocal(k, sidToId) ?: return@forEach
+                val cur = maxOf(live[lk]?.updatedMs ?: 0, tombs[lk] ?: 0)
+                if (w.updatedMs < cur) return@forEach
+                if (w.posMs < 0) { live.remove(lk); tombs[lk] = w.updatedMs } else { live[lk] = w; tombs.remove(lk) }
+            }
+            repo.applyProgress(s.id, live, tombs)
+        }
+        activeId?.let { progress = repo.progress(it) }
+
+        if (replace || snap.settingsMs > repo.settingsMs) {
+            val st = snap.settings
+            (st["posterMode"] as? String)?.takeIf { it in setOf("auto", "always", "never") }?.let { setPosterModeOption(it) }
+            (st["posterTitle"] as? String)?.takeIf { it in setOf("overlay", "below") }?.let { setPosterTitleOption(it) }
+            (st["playerMode"] as? String)?.takeIf { it in setOf(PLAYER_INTERNAL, PLAYER_EXTERNAL) }?.let { setPlayer(it) }
+            (st["streamFormat"] as? String)?.takeIf { it in setOf("auto", "hls", "ts") }?.let { setFormat(it) }
+            (st["updateHours"] as? Number)?.toInt()?.takeIf { it in setOf(0, 6, 12, 24) }?.let { setUpdateInterval(it) }
+            (st["theme"] as? String)?.let { setTheme(it) }
+            repo.settingsMs = snap.settingsMs
+        }
+
+        val a = activeSource
+        if (a == null) {
+            activeId = null
+            sources.firstOrNull()?.let { openAccount(it.id, pinVerified = true) } ?: run {
+                if (screen != Screen.Setup) { setupFromSettings = false; screen = Screen.Setup }
+            }
+        } else if (playlist == null && screen == Screen.Home) start()
+        lastSyncedHash = Json.write(Sync.toJson(buildSnap())).hashCode()
+        autoBackup()
+    }
+
+    /** Diğer cihazdan gelen eşitleme istekleri (ana iş parçacığında). */
+    private fun handleSync(action: String, headers: Map<String, String>, body: Map<String, Any?>): Map<String, Any?> {
+        when (action) {
+            "hello" -> return mapOf("app" to "TvKutu", "deviceId" to repo.deviceId, "name" to deviceName, "v" to 1)
+            "pair" -> {
+                val now = System.currentTimeMillis()
+                while (pairFailures.isNotEmpty() && now - pairFailures.first() > 60_000) pairFailures.removeFirst()
+                if (pairFailures.size >= 8) return mapOf("error" to "Çok fazla hatalı deneme, biraz bekle")
+                refreshSyncCode()
+                val code = (body["code"] as? String)?.filter { it.isDigit() }.orEmpty()
+                if (code != syncCode) {
+                    pairFailures.addLast(now)
+                    return mapOf("error" to "Kod eşleşmedi")
+                }
+                val fromId = body["deviceId"] as? String ?: return mapOf("error" to "Eksik bilgi")
+                val token = ByteArray(24).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
+                val peer = Repository.SyncPeer(
+                    fromId, (body["name"] as? String)?.take(40) ?: "TvKutu", token,
+                    headers["x-remote-addr"].orEmpty(), (body["port"] as? Number)?.toInt() ?: 0, 0,
+                )
+                repo.upsertPair(peer)
+                peers = repo.pairs
+                refreshSyncCode(force = true)
+                message = "${peer.name} ile eşleşildi"
+                return mapOf("ok" to true, "deviceId" to repo.deviceId, "name" to deviceName, "token" to token)
+            }
+        }
+        // Eşleşmiş cihaz doğrulaması
+        val fromId = body["deviceId"] as? String
+        val token = headers["authorization"]?.removePrefix("Bearer ")?.trim()
+        val peer = peers.firstOrNull { it.deviceId == fromId && it.token == token }
+            ?: return mapOf("error" to "Eşleşme bulunamadı", "unpaired" to true)
+        val updated = peer.copy(
+            host = headers["x-remote-addr"]?.takeIf { it.isNotBlank() } ?: peer.host,
+            port = (body["port"] as? Number)?.toInt() ?: peer.port,
+            lastSyncMs = System.currentTimeMillis(),
+        )
+        return when (action) {
+            "exchange" -> {
+                val result: Map<String, Any?> = when (body["mode"]) {
+                    "pull" -> mapOf("ok" to true, "snapshot" to Sync.toJson(buildSnap()))
+                    "replace" -> {
+                        applySnap(Sync.fromJson(body["snapshot"]), replace = true)
+                        message = "${peer.name} cihazındaki veriler alındı"
+                        mapOf("ok" to true)
+                    }
+                    else -> {
+                        val merged = Sync.merge(buildSnap(), Sync.fromJson(body["snapshot"]))
+                        applySnap(merged, replace = false)
+                        mapOf("ok" to true, "snapshot" to Sync.toJson(merged))
+                    }
+                }
+                repo.upsertPair(updated); peers = repo.pairs
+                result
+            }
+            "unpair" -> {
+                repo.pairs = repo.pairs.filterNot { it.deviceId == peer.deviceId }
+                peers = repo.pairs
+                mapOf("ok" to true)
+            }
+            else -> mapOf("error" to "Bilinmeyen işlem")
+        }
+    }
+
+    private suspend fun postJson(host: String, port: Int, path: String, body: Map<String, Any?>, token: String? = null): Map<String, Any?> =
+        withContext(Dispatchers.IO) {
+            val req = Request.Builder().url("http://$host:$port/sync/$path")
+                .post(Json.write(body).toRequestBody("application/json".toMediaType()))
+                .apply { if (token != null) header("Authorization", "Bearer $token") }
+                .build()
+            syncHttp.newCall(req).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                Json.parseObject(text)
+            }
+        }
+
+    /** Diğer cihazın kodunu yazıp eşleşir; ağda bulunan cihazlara sırayla dener. */
+    fun pairWithCode(input: String) {
+        val code = input.filter { it.isDigit() }
+        if (code.length != 6) { syncError = "Kod 6 haneli olmalı"; return }
+        val candidates = nearby
+        if (candidates.isEmpty()) {
+            syncError = "Ağda başka TvKutu bulunamadı. Diğer cihazda TvKutu açık ve aynı Wi‑Fi'de mi?"
+            return
+        }
+        syncError = null
+        syncBusy = "Bağlanılıyor…"
+        viewModelScope.launch {
+            var paired: Repository.SyncPeer? = null
+            var lastErr: String? = null
+            for (c in candidates) {
+                val res = runCatching {
+                    postJson(c.host, c.port, "pair", mapOf("code" to code, "deviceId" to repo.deviceId, "name" to deviceName, "port" to server.port))
+                }.getOrElse { lastErr = it.message; null } ?: continue
+                if (res["ok"] == true) {
+                    paired = Repository.SyncPeer(
+                        res["deviceId"] as? String ?: c.deviceId, res["name"] as? String ?: c.name,
+                        res["token"] as? String ?: "", c.host, c.port, 0,
+                    )
+                    break
+                } else lastErr = res["error"] as? String
+            }
+            syncBusy = null
+            val p = paired
+            if (p == null) {
+                syncError = if (lastErr == "Kod eşleşmedi" || lastErr == null) "Kod hiçbir cihazla eşleşmedi. Diğer cihazdaki kodu kontrol et." else lastErr
+                return@launch
+            }
+            repo.upsertPair(p)
+            peers = repo.pairs
+            syncChoice = SyncChoice(p) // ilk eşitleme: hangi veriler esas alınsın?
+        }
+    }
+
+    /** İlk eşitleme seçimi: "merge", "mine" (bu cihazdaki) ya da "theirs" (diğer cihazdaki). */
+    fun firstSync(choice: String) {
+        val p = syncChoice?.peer ?: return
+        syncChoice = null
+        exchange(p, when (choice) { "mine" -> "replace"; "theirs" -> "pull"; else -> "merge" }, announce = true)
+    }
+
+    fun cancelFirstSync() { syncChoice = null }
+
+    fun syncNow(deviceId: String) = peers.firstOrNull { it.deviceId == deviceId }?.let { exchange(it, "merge", announce = true) }
+
+    fun removePeer(deviceId: String) {
+        val p = peers.firstOrNull { it.deviceId == deviceId } ?: return
+        repo.pairs = repo.pairs.filterNot { it.deviceId == deviceId }
+        peers = repo.pairs
+        viewModelScope.launch {
+            val (h, port) = addressOf(p)
+            runCatching { postJson(h, port, "unpair", mapOf("deviceId" to repo.deviceId), p.token) }
+        }
+    }
+
+    private fun addressOf(p: Repository.SyncPeer): kotlin.Pair<String, Int> =
+        nearby.firstOrNull { it.deviceId == p.deviceId }?.let { it.host to it.port } ?: (p.host to p.port)
+
+    fun isPeerOnline(p: Repository.SyncPeer) = nearby.any { it.deviceId == p.deviceId }
+
+    private fun exchange(p: Repository.SyncPeer, mode: String, announce: Boolean) {
+        if (syncBusy != null) return
+        syncBusy = "${p.name} ile eşitleniyor…"
+        viewModelScope.launch {
+            val (host, port) = addressOf(p)
+            try {
+                val body = linkedMapOf<String, Any?>("deviceId" to repo.deviceId, "mode" to mode, "port" to server.port)
+                if (mode != "pull") body["snapshot"] = Sync.toJson(buildSnap())
+                val res = postJson(host, port, "exchange", body, p.token)
+                when {
+                    res["unpaired"] == true -> {
+                        repo.pairs = repo.pairs.filterNot { it.deviceId == p.deviceId }; peers = repo.pairs
+                        throw IllegalStateException("${p.name} eşleşmeyi kaldırmış; yeniden eşleş")
+                    }
+                    res["error"] != null -> throw IllegalStateException(res["error"].toString())
+                }
+                val before = buildSnap()
+                res["snapshot"]?.let { applySnap(Sync.fromJson(it), replace = mode == "pull") }
+                repo.upsertPair(p.copy(host = host, port = port, lastSyncMs = System.currentTimeMillis()))
+                peers = repo.pairs
+                if (announce) message = "Eşitlendi: ${p.name} · " + summarizeChange(before, buildSnap())
+                syncError = null
+            } catch (e: Exception) {
+                if (announce) syncError = "${p.name} ile eşitlenemedi: ${e.message ?: e.javaClass.simpleName}"
+            } finally {
+                syncBusy = null
+            }
+        }
+    }
+
+    private fun summarizeChange(a: Sync.Snap, b: Sync.Snap): String {
+        val acc = Sync.liveAccounts(b).size
+        val fav = b.favorites.count { it.value > 0 }
+        val prog = b.progress.count { it.value.posMs >= 0 }
+        return if (a == b) "değişiklik yok" else "$acc hesap, $fav favori, $prog kaldığın yer"
+    }
+
+    /** Değişiklik varsa ağdaki eşleşmiş cihazlarla sessizce eşitler. */
+    private fun autoSyncTick() {
+        if (!autoSync || peers.isEmpty() || syncBusy != null) return
+        val h = Json.write(Sync.toJson(buildSnap())).hashCode()
+        val online = peers.filter { isPeerOnline(it) }
+        if (online.isEmpty()) return
+        if (h == lastSyncedHash && online.all { System.currentTimeMillis() - it.lastSyncMs < 10 * 60_000 }) return
+        lastSyncedHash = h
+        online.firstOrNull()?.let { exchange(it, "merge", announce = false) }
+    }
+
     // ---- Yedekleme ----
     private fun backupSettings(): Map<String, Any?> = mapOf(
         "posterMode" to posterMode, "posterTitle" to posterTitle, "playerMode" to playerMode,
-        "streamFormat" to streamFormat, "updateHours" to updateHours,
+        "streamFormat" to streamFormat, "updateHours" to updateHours, "theme" to themeId,
     )
 
     fun backupExtras(): Backup.Extras = Backup.Extras(
@@ -790,6 +1140,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         (st["playerMode"] as? String)?.takeIf { it in setOf(PLAYER_INTERNAL, PLAYER_EXTERNAL) }?.let { setPlayer(it) }
         (st["streamFormat"] as? String)?.takeIf { it in setOf("auto", "hls", "ts") }?.let { setFormat(it) }
         (st["updateHours"] as? Number)?.toInt()?.takeIf { it in setOf(0, 6, 12, 24) }?.let { setUpdateInterval(it) }
+        (st["theme"] as? String)?.let { setTheme(it) }
 
         val x = plan.extras
         val favs = if (replace) x.favorites else repo.favorites() + x.favorites
@@ -948,6 +1299,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         const val ALL = "Tüm kanallar"
         const val FAVORITES = "★ Favoriler"
         const val CONTINUE = "▶ Devam et"
+        const val SYNC_CODE_MS = 3 * 60_000L
         const val PLAYER_INTERNAL = "internal"
         const val PLAYER_EXTERNAL = "external"
         private val VOD_URL = Regex("""(?i)(/movies?/|/series/|/vod/|\.(mp4|mkv|avi|m4v|mov|webm)(\?|$))""")

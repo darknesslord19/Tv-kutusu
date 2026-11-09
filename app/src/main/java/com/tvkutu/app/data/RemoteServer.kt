@@ -26,6 +26,11 @@ class RemoteServer(
     private val page: () -> String,
     /** İşlem adı + JSON gövde → JSON yanıt. Sunucu iş parçacığından çağrılır. */
     private val handler: (action: String, body: Map<String, Any?>) -> Map<String, Any?>,
+    /**
+     * Wi‑Fi eşitleme uç noktaları (`/sync/<işlem>`): işlem, istek başlıkları (küçük harf;
+     * ayrıca "x-remote-addr") ve JSON gövde → JSON yanıt.
+     */
+    private val syncHandler: ((action: String, headers: Map<String, String>, body: Map<String, Any?>) -> Map<String, Any?>)? = null,
 ) {
     @Volatile private var socket: ServerSocket? = null
     private var pool: ExecutorService? = null
@@ -86,17 +91,38 @@ class RemoteServer(
         val path = parts[1].substringBefore('?')
 
         var contentLength = 0
+        val headers = HashMap<String, String>()
         while (true) {
             val h = readLine(input) ?: break
             if (h.isEmpty()) break
-            if (h.startsWith("content-length:", ignoreCase = true)) {
-                contentLength = h.substringAfter(':').trim().toIntOrNull() ?: 0
-            }
+            val name = h.substringBefore(':').trim().lowercase()
+            if (headers.size < 40) headers[name] = h.substringAfter(':', "").trim()
+            if (name == "content-length") contentLength = h.substringAfter(':').trim().toIntOrNull() ?: 0
         }
+        headers["x-remote-addr"] = s.inetAddress?.hostAddress.orEmpty()
 
         val base = "/s/$code"
         when {
             path == "/favicon.ico" -> respond(out, 404, "text/plain", "")
+            path.startsWith("/sync/") && syncHandler != null -> {
+                val action = path.removePrefix("/sync/").trim('/')
+                if (!action.matches(Regex("[a-z]{1,16}")) || contentLength !in 0..MAX_BODY) {
+                    respondJson(out, 400, mapOf("error" to "Geçersiz istek")); return
+                }
+                val body = if (contentLength > 0) {
+                    try {
+                        Json.parseObject(String(readBytes(input, contentLength), Charsets.UTF_8))
+                    } catch (e: Exception) {
+                        respondJson(out, 400, mapOf("error" to "Geçersiz istek")); return
+                    }
+                } else emptyMap()
+                val result = try {
+                    syncHandler.invoke(action, headers, body)
+                } catch (e: Exception) {
+                    mapOf("error" to (e.message ?: "Beklenmeyen hata"))
+                }
+                respondJson(out, 200, result)
+            }
             path == base || path == "$base/" -> {
                 if (method == "GET") respond(out, 200, "text/html", page()) else respond(out, 405, "text/plain", "")
             }

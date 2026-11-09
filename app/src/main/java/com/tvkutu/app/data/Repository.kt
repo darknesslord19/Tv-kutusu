@@ -45,6 +45,22 @@ class Repository(context: Context) {
             (0 until arr.length()).map { i -> fromJson(arr.getJSONObject(i)) }
         }.getOrDefault(emptyList())
         set(list) {
+            // Değişen hesaplara zaman damgası, silinenlere iz bırak (Wi‑Fi eşitleme için).
+            val now = System.currentTimeMillis()
+            val old = sources
+            val stamped = list.map { s ->
+                val o = old.firstOrNull { it.id == s.id }
+                if (o == null || !o.sameContent(s)) s.copy(updatedMs = maxOf(now, s.updatedMs)) else s
+            }
+            val removed = old.filter { o -> stamped.none { it.id == o.id } && stamped.none { it.url == o.url } }
+            if (removed.isNotEmpty()) addDeletedAccounts(removed.associate { it.url to now })
+            val added = stamped.map { it.url }.toSet()
+            if (deletedAccounts().keys.any { it in added }) setDeletedAccounts(deletedAccounts().filterKeys { it !in added })
+            persistSources(stamped)
+        }
+
+    /** Zaman damgasına dokunmadan yazar (eşitlemeden gelen liste için). */
+    fun persistSources(list: List<Source>) {
             val arr = JSONArray()
             list.forEach { arr.put(toJson(it)) }
             prefs.edit().putString("sources", arr.toString()).apply()
@@ -52,7 +68,27 @@ class Repository(context: Context) {
             val keep = list.map { playlistFile(it.id).name }.toSet()
             dir.listFiles { f -> f.name.startsWith("playlist_") && f.name.endsWith(".m3u") && f.name !in keep }?.forEach { it.delete() }
             if (activeId != null && list.none { it.id == activeId }) activeId = list.firstOrNull()?.id
-        }
+    }
+
+    // ---- Eşitleme: silinen hesaplar (link → silinme zamanı) ----
+    fun deletedAccounts(): Map<String, Long> = longMapPref("deleted_accounts")
+    private fun setDeletedAccounts(m: Map<String, Long>) = putLongMapPref("deleted_accounts", m)
+    fun addDeletedAccounts(m: Map<String, Long>) {
+        val cur = deletedAccounts().toMutableMap()
+        m.forEach { (k, v) -> if ((cur[k] ?: 0) < v) cur[k] = v }
+        setDeletedAccounts(cur)
+    }
+
+    private fun longMapPref(key: String): Map<String, Long> = runCatching {
+        val o = JSONObject(prefs.getString(key, "{}") ?: "{}")
+        o.keys().asSequence().associateWith { o.getLong(it) }
+    }.getOrDefault(emptyMap())
+
+    private fun putLongMapPref(key: String, m: Map<String, Long>) {
+        val o = JSONObject()
+        m.forEach { (k, v) -> o.put(k, v) }
+        prefs.edit().putString(key, o.toString()).apply()
+    }
 
     var activeId: String?
         get() = prefs.getString("active_id", null)
@@ -70,7 +106,7 @@ class Repository(context: Context) {
     private fun toJson(s: Source) = JSONObject()
         .put("id", s.id).put("name", s.name).put("url", s.url)
         .put("color", s.color).put("epg", s.epg).put("locked", s.locked)
-        .put("count", s.count).put("error", s.error).put("checked", s.checkedMs)
+        .put("count", s.count).put("error", s.error).put("checked", s.checkedMs).put("updated", s.updatedMs)
 
     private fun fromJson(o: JSONObject) = Source(
         id = o.getString("id"),
@@ -82,6 +118,7 @@ class Repository(context: Context) {
         count = o.optInt("count", 0),
         error = o.optString("error"),
         checkedMs = o.optLong("checked", 0L),
+        updatedMs = o.optLong("updated", 0L),
     )
 
     fun nextColor(): String {
@@ -106,34 +143,62 @@ class Repository(context: Context) {
     /** Otomatik güncelleme aralığı (saat). 0 = kapalı. */
     var updateHours: Int
         get() = prefs.getInt("update_hours", 12)
-        set(v) = prefs.edit().putInt("update_hours", v).apply()
+        set(v) = prefs.edit().putInt("update_hours", v).putLong("settings_ms", System.currentTimeMillis()).apply()
 
     /** "internal" = ExoPlayer, "external" = cihazdaki başka oynatıcı (VLC, MX…). */
     var playerMode: String
         get() = prefs.getString("player_mode", "internal") ?: "internal"
-        set(v) = prefs.edit().putString("player_mode", v).apply()
+        set(v) = prefs.edit().putString("player_mode", v).putLong("settings_ms", System.currentTimeMillis()).apply()
 
     /** "auto", "hls" veya "ts". */
     var streamFormat: String
         get() = prefs.getString("stream_format", "auto") ?: "auto"
-        set(v) = prefs.edit().putString("stream_format", v).apply()
+        set(v) = prefs.edit().putString("stream_format", v).putLong("settings_ms", System.currentTimeMillis()).apply()
 
     /** Afiş kartları: "auto" (görsel/linke göre), "always" (hep afiş), "never" (hep logo). */
     var posterMode: String
         get() = prefs.getString("poster_mode", "auto") ?: "auto"
-        set(v) = prefs.edit().putString("poster_mode", v).apply()
+        set(v) = prefs.edit().putString("poster_mode", v).putLong("settings_ms", System.currentTimeMillis()).apply()
 
     /** Afiş kartında ad: "overlay" (afişin üstünde) veya "below" (afişin altında). */
     var posterTitle: String
         get() = prefs.getString("poster_title", "overlay") ?: "overlay"
-        set(v) = prefs.edit().putString("poster_title", v).apply()
+        set(v) = prefs.edit().putString("poster_title", v).putLong("settings_ms", System.currentTimeMillis()).apply()
+
+    /** Renk teması. */
+    var theme: String
+        get() = prefs.getString("theme", "gece") ?: "gece"
+        set(v) = prefs.edit().putString("theme", v).putLong("settings_ms", System.currentTimeMillis()).apply()
+
+    /** Ayarlar en son ne zaman değişti (eşitleme için). */
+    var settingsMs: Long
+        get() = prefs.getLong("settings_ms", 0L)
+        set(v) = prefs.edit().putLong("settings_ms", v).apply()
 
     // ---- Favoriler (anahtarlar hesap kimliğiyle başladığı için hesap başınadır) ----
     fun favorites(): Set<String> = prefs.getStringSet("favorites", emptySet())!!.toSet()
 
     fun toggleFavorite(key: String): Set<String> {
         val set = favorites().toMutableSet()
-        if (!set.remove(key)) set.add(key)
+        val now = System.currentTimeMillis()
+        val lww = favLww().toMutableMap()
+        if (set.remove(key)) lww[key] = -now else { set.add(key); lww[key] = now }
+        prefs.edit().putStringSet("favorites", set).apply()
+        putLongMapPref("fav_lww", lww)
+        return set
+    }
+
+    /** Favoriler zaman damgalı (artı: favori, eksi: çıkarıldı). */
+    fun favLww(): Map<String, Long> {
+        val m = longMapPref("fav_lww")
+        if (m.isEmpty() && favorites().isNotEmpty()) return favorites().associateWith { 1L }
+        return m
+    }
+
+    /** Eşitlemeden gelen favorileri uygular. */
+    fun applyFavLww(m: Map<String, Long>): Set<String> {
+        putLongMapPref("fav_lww", m)
+        val set = m.filterValues { it > 0 }.keys
         prefs.edit().putStringSet("favorites", set).apply()
         return set
     }
@@ -152,16 +217,30 @@ class Repository(context: Context) {
         val map = progress(accountId).toMutableMap()
         if (WatchProgress.shouldKeep(posMs, durMs)) {
             map[key] = WatchProgress(posMs, durMs, System.currentTimeMillis())
+            val t = progressTombs(accountId)
+            if (key in t) putLongMapPref("progress_rm_$accountId", t - key)
         } else if (WatchProgress.isFinished(posMs, durMs)) {
             map.remove(key)
+            putLongMapPref("progress_rm_$accountId", progressTombs(accountId) + (key to System.currentTimeMillis()))
         } else {
             return map
         }
         return writeProgress(accountId, map)
     }
 
-    fun removeProgress(accountId: String, key: String): Map<String, WatchProgress> =
-        writeProgress(accountId, progress(accountId) - key)
+    fun removeProgress(accountId: String, key: String): Map<String, WatchProgress> {
+        putLongMapPref("progress_rm_$accountId", progressTombs(accountId) + (key to System.currentTimeMillis()))
+        return writeProgress(accountId, progress(accountId) - key)
+    }
+
+    /** Listeden çıkarılan kaldığın yerler (anahtar → zaman). */
+    fun progressTombs(accountId: String): Map<String, Long> = longMapPref("progress_rm_$accountId")
+
+    /** Eşitlemeden gelen kaldığın yerleri uygular. */
+    fun applyProgress(accountId: String, live: Map<String, WatchProgress>, tombs: Map<String, Long>): Map<String, WatchProgress> {
+        putLongMapPref("progress_rm_$accountId", tombs)
+        return writeProgress(accountId, live)
+    }
 
     private fun writeProgress(accountId: String, map: Map<String, WatchProgress>): Map<String, WatchProgress> {
         val trimmed = map.entries.sortedByDescending { it.value.updatedMs }.take(WatchProgress.MAX_ITEMS)
@@ -171,7 +250,15 @@ class Repository(context: Context) {
         return trimmed.associate { it.key to it.value }
     }
 
-    fun setFavorites(set: Set<String>) = prefs.edit().putStringSet("favorites", set).apply()
+    fun setFavorites(set: Set<String>) {
+        val now = System.currentTimeMillis()
+        val old = favorites()
+        val lww = favLww().toMutableMap()
+        set.filter { it !in old }.forEach { lww[it] = now }
+        old.filter { it !in set }.forEach { lww[it] = -now }
+        putLongMapPref("fav_lww", lww)
+        prefs.edit().putStringSet("favorites", set).apply()
+    }
 
     /** Yedekten gelen ilerlemeyi birleştirir (aynı kayıtta yenisi kazanır). */
     fun mergeProgress(accountId: String, incoming: Map<String, WatchProgress>): Map<String, WatchProgress> {
@@ -225,7 +312,62 @@ class Repository(context: Context) {
     /** Kilitli kategori kimlikleri ("grp:<hesap>\u0001<kategori>"). */
     var lockedGroups: Set<String>
         get() = prefs.getStringSet("locked_groups", emptySet())!!.toSet()
-        set(v) = prefs.edit().putStringSet("locked_groups", v).apply()
+        set(v) {
+            val now = System.currentTimeMillis()
+            val old = lockedGroups
+            val lww = lockLww().toMutableMap()
+            v.filter { it !in old }.forEach { lww[it] = now }
+            old.filter { it !in v }.forEach { lww[it] = -now }
+            putLongMapPref("lock_lww", lww)
+            prefs.edit().putStringSet("locked_groups", v).apply()
+        }
+
+    fun lockLww(): Map<String, Long> {
+        val m = longMapPref("lock_lww")
+        if (m.isEmpty() && lockedGroups.isNotEmpty()) return lockedGroups.associateWith { 1L }
+        return m
+    }
+
+    fun applyLockLww(m: Map<String, Long>): Set<String> {
+        putLongMapPref("lock_lww", m)
+        val set = m.filterValues { it > 0 }.keys
+        prefs.edit().putStringSet("locked_groups", set).apply()
+        return set
+    }
+
+    // ---- Wi‑Fi eşitleme: cihaz kimliği ve eşleşmiş cihazlar ----
+    val deviceId: String
+        get() = prefs.getString("device_id", null) ?: java.util.UUID.randomUUID().toString().also {
+            prefs.edit().putString("device_id", it).apply()
+        }
+
+    var autoSync: Boolean
+        get() = prefs.getBoolean("auto_sync", true)
+        set(v) = prefs.edit().putBoolean("auto_sync", v).apply()
+
+    data class SyncPeer(val deviceId: String, val name: String, val token: String, val host: String, val port: Int, val lastSyncMs: Long)
+
+    var pairs: List<SyncPeer>
+        get() = runCatching {
+            val arr = JSONArray(prefs.getString("sync_pairs", "[]"))
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                SyncPeer(o.getString("id"), o.optString("name"), o.getString("token"), o.optString("host"), o.optInt("port"), o.optLong("last"))
+            }
+        }.getOrDefault(emptyList())
+        set(list) {
+            val arr = JSONArray()
+            list.forEach {
+                arr.put(JSONObject().put("id", it.deviceId).put("name", it.name).put("token", it.token)
+                    .put("host", it.host).put("port", it.port).put("last", it.lastSyncMs))
+            }
+            prefs.edit().putString("sync_pairs", arr.toString()).apply()
+        }
+
+    @Synchronized
+    fun upsertPair(p: SyncPeer) {
+        pairs = pairs.filterNot { it.deviceId == p.deviceId } + p
+    }
 
     // ---- Telefon kumandası (kalıcı kod ve port, yer imi çalışmaya devam etsin) ----
     val remoteCode: String
