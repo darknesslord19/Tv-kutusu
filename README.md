@@ -53,6 +53,12 @@ Gereksinim: Android 7.0 veya üstü (Android TV / Google TV; telefonda da çalı
 | Oynat/Duraklat | Duraklat / devam |
 | Geri | Paneli kapat · oynatıcıdan çık |
 
+## İmza
+
+APK'lar `app/signing/tvkutu-release.jks` anahtarıyla imzalanır (şifreli PKCS12). Şifre repoda değil, GitHub'da
+**Settings › Secrets and variables › Actions** altında `KEYSTORE_PASSWORD` adlı gizli değişkende durur.
+Böylece her yeni sürüm eskisinin üzerine kurulur ve veriler korunur. Şifreyi güvenli bir yerde sakla.
+
 ## Geliştirme
 
 Kotlin, Jetpack Compose, Media3 ExoPlayer, OkHttp, Coil.

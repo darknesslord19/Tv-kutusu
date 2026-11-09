@@ -26,7 +26,21 @@ jobs:
       - name: Testler
         run: gradle --no-daemon testDebugUnitTest
 
+      - name: İmza kontrolü
+        id: sign
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_PASSWORD" ]; then
+            echo "kind=Kalıcı imza (eskisinin üzerine kurulur)" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::KEYSTORE_PASSWORD tanımlı değil; geçici imza kullanılıyor."
+            echo "kind=GEÇİCİ imza: KEYSTORE_PASSWORD eklenmemiş, eskisinin üzerine kurulamaz" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: APK derle
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: gradle --no-daemon assembleRelease
 
       - name: APK'yı adlandır
@@ -47,6 +61,7 @@ jobs:
           name: TvKutu v0.1.${{ github.run_number }}
           body: |
             Otomatik derleme. `TvKutu.apk` dosyasını indirip Android TV kutusuna kur.
+            İmza: ${{ steps.sign.outputs.kind }}
             Commit: ${{ github.sha }}
           files: dist/TvKutu.apk
           make_latest: true

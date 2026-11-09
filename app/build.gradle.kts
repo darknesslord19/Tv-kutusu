@@ -4,6 +4,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Sabit imza: anahtar repoda (şifreli PKCS12), şifresi GitHub'da KEYSTORE_PASSWORD gizli değişkeninde.
+// Şifre yoksa geçici (debug) imza kullanılır; o APK eski sürümün üzerine kurulamaz.
+val keystorePassword: String? = System.getenv("KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }
+
 android {
     namespace = "com.tvkutu.app"
     compileSdk = 35
@@ -16,6 +20,18 @@ android {
         versionName = "0.9.0"
     }
 
+    signingConfigs {
+        if (keystorePassword != null) {
+            create("release") {
+                storeFile = file("signing/tvkutu-release.jks")
+                storePassword = keystorePassword
+                keyAlias = "tvkutu"
+                keyPassword = keystorePassword
+                storeType = "pkcs12"
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -23,9 +39,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Kendi imza anahtarın yoksa sürüm APK'sı da debug anahtarıyla imzalanır,
-            // böylece doğrudan TV kutusuna kurulabilir.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (keystorePassword != null) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
         }
     }
 
